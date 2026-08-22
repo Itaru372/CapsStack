@@ -1,0 +1,27 @@
+# SwiftPM / Xcode build output
+.build/
+build/
+dist/
+DerivedData/
+.swiftpm/
+
+# Local packaging output
+outputs/
+
+# macOS / Xcode local state
+.DS_Store
+*.xcuserstate
+xcuserdata/
+*.xcuserdatad/
+
+# Codex desktop's generated, machine-local environment
+.codex/
+
+# Local secrets and signing material
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.mobileprovision

@@ -1,0 +1,140 @@
+import Foundation
+
+enum PreferenceKeys {
+    static let capsStackEnabled = "capsStackEnabled"
+    static let keepRunningInBackground = "keepRunningInBackground"
+    static let suppressOriginalCapsLock = "suppressOriginalCapsLock"
+    static let collectCodex = "collectCodex"
+    static let collectClaude = "collectClaude"
+    static let collectOpenCode = "collectOpenCode"
+    static let collectPi = "collectPi"
+    static let primarySummarizer = "primarySummarizer"
+    static let automaticFallback = "automaticFallback"
+    static let codexExecutablePath = "codexExecutablePath"
+    static let claudeExecutablePath = "claudeExecutablePath"
+    static let opencodeExecutablePath = "opencodeExecutablePath"
+    static let piExecutablePath = "piExecutablePath"
+    static let codexModel = "codexModel"
+    static let claudeModel = "claudeModel"
+    static let opencodeModel = "opencodeModel"
+    static let piModel = "piModel"
+    static let codexReasoning = "codexReasoning"
+    static let claudeReasoning = "claudeReasoning"
+    static let opencodeReasoning = "opencodeReasoning"
+    static let piReasoning = "piReasoning"
+    static let awayStart = "awayStart"
+}
+
+struct CapsStackFeaturePreferences: Equatable, Sendable {
+    var isEnabled: Bool
+    var keepRunningInBackground: Bool
+    var suppressOriginalCapsLock: Bool
+
+    init(defaults: UserDefaults = .standard) {
+        defaults.register(defaults: [
+            PreferenceKeys.capsStackEnabled: true,
+            PreferenceKeys.keepRunningInBackground: true,
+            PreferenceKeys.suppressOriginalCapsLock: false
+        ])
+        isEnabled = defaults.object(forKey: PreferenceKeys.capsStackEnabled) as? Bool ?? true
+        keepRunningInBackground = defaults.object(forKey: PreferenceKeys.keepRunningInBackground) as? Bool ?? true
+        suppressOriginalCapsLock = defaults.object(forKey: PreferenceKeys.suppressOriginalCapsLock) as? Bool ?? false
+    }
+
+    init(isEnabled: Bool, keepRunningInBackground: Bool, suppressOriginalCapsLock: Bool = false) {
+        self.isEnabled = isEnabled
+        self.keepRunningInBackground = keepRunningInBackground
+        self.suppressOriginalCapsLock = suppressOriginalCapsLock
+    }
+}
+
+struct CollectorPreferences: Equatable, Sendable {
+    var enabledSources: Set<CLIKind>
+
+    init(defaults: UserDefaults = .standard) {
+        defaults.register(defaults: [
+            PreferenceKeys.collectCodex: true,
+            PreferenceKeys.collectClaude: true,
+            PreferenceKeys.collectOpenCode: false,
+            PreferenceKeys.collectPi: false
+        ])
+        var sources = Set<CLIKind>()
+        if defaults.bool(forKey: PreferenceKeys.collectCodex) { sources.insert(.codex) }
+        if defaults.bool(forKey: PreferenceKeys.collectClaude) { sources.insert(.claudeCode) }
+        if defaults.bool(forKey: PreferenceKeys.collectOpenCode) { sources.insert(.opencode) }
+        if defaults.bool(forKey: PreferenceKeys.collectPi) { sources.insert(.pi) }
+        enabledSources = sources
+    }
+
+    init(enabledSources: Set<CLIKind>) {
+        self.enabledSources = enabledSources
+    }
+}
+
+struct SummarizerPreferences: Equatable, Sendable {
+    var primary: CLIKind
+    var automaticFallback: Bool
+    var executableOverrides: [CLIKind: String]
+    var modelOverrides: [CLIKind: String]
+    var reasoningOverrides: [CLIKind: String]
+
+    init(defaults: UserDefaults = .standard) {
+        defaults.register(defaults: [
+            PreferenceKeys.primarySummarizer: CLIKind.codex.rawValue,
+            PreferenceKeys.automaticFallback: true
+        ])
+        primary = CLIKind(rawValue: defaults.string(forKey: PreferenceKeys.primarySummarizer) ?? "") ?? .codex
+        automaticFallback = defaults.bool(forKey: PreferenceKeys.automaticFallback)
+        executableOverrides = [
+            .codex: defaults.string(forKey: PreferenceKeys.codexExecutablePath) ?? "",
+            .claudeCode: defaults.string(forKey: PreferenceKeys.claudeExecutablePath) ?? "",
+            .opencode: defaults.string(forKey: PreferenceKeys.opencodeExecutablePath) ?? "",
+            .pi: defaults.string(forKey: PreferenceKeys.piExecutablePath) ?? ""
+        ]
+        modelOverrides = [
+            .codex: defaults.string(forKey: PreferenceKeys.codexModel) ?? "",
+            .claudeCode: defaults.string(forKey: PreferenceKeys.claudeModel) ?? "",
+            .opencode: defaults.string(forKey: PreferenceKeys.opencodeModel) ?? "",
+            .pi: defaults.string(forKey: PreferenceKeys.piModel) ?? ""
+        ]
+        reasoningOverrides = [
+            .codex: defaults.string(forKey: PreferenceKeys.codexReasoning) ?? "",
+            .claudeCode: defaults.string(forKey: PreferenceKeys.claudeReasoning) ?? "",
+            .opencode: defaults.string(forKey: PreferenceKeys.opencodeReasoning) ?? "",
+            .pi: defaults.string(forKey: PreferenceKeys.piReasoning) ?? ""
+        ]
+    }
+
+    init(
+        primary: CLIKind,
+        automaticFallback: Bool,
+        executableOverrides: [CLIKind: String] = [:],
+        modelOverrides: [CLIKind: String] = [:],
+        reasoningOverrides: [CLIKind: String] = [:]
+    ) {
+        self.primary = primary
+        self.automaticFallback = automaticFallback
+        self.executableOverrides = executableOverrides
+        self.modelOverrides = modelOverrides
+        self.reasoningOverrides = reasoningOverrides
+    }
+
+    func executableOverride(for kind: CLIKind) -> String? {
+        normalizedValue(executableOverrides[kind])
+    }
+
+    func modelOverride(for kind: CLIKind) -> String? {
+        normalizedValue(modelOverrides[kind])
+    }
+
+    func reasoningOverride(for kind: CLIKind) -> String? {
+        normalizedValue(reasoningOverrides[kind])
+    }
+
+    private func normalizedValue(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}
