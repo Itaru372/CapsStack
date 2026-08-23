@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import Foundation
-import ServiceManagement
 
 enum AppPhase: Equatable {
     case idle
@@ -37,6 +36,11 @@ final class AppController: ObservableObject {
     private let notifications: NotificationServicing
     private var hasStarted = false
     private var sessionCountTask: Task<Void, Never>?
+    /// The currently running collection/summary workflow, if any. Keeping one handle lets
+    /// settings/history actions cancel stale work before it can publish a late state update.
+    private var activeWorkflowTask: Task<Void, Never>?
+    private var workflowGeneration: UInt = 0
+    private var isRefreshingCLIStatuses = false
     private var backgroundActivity: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
     private let showsInMemoryDemoData: Bool
@@ -177,20 +181,30 @@ final class AppController: ObservableObject {
               phase != .disabled,
               let pendingID = entry.pendingArtifactID else { return }
 
-        Task {
+        // Set the phase before the first suspension point. Without this synchronous guard,
+        // repeated clicks on "再要約" could enqueue multiple tasks before the first one loaded
+        // its artifact, and both tasks would append a completed history row.
+        phase = .summarizing
+        lastError = nil
+        let workflowID = beginWorkflow()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.finishWorkflow(workflowID) }
+
             do {
                 guard let batch = try historyStore.loadPending(pendingID) else {
                     throw HistoryStoreError.pendingArtifactNotFound(pendingID)
                 }
-                phase = .summarizing
-                lastError = nil
-                await summarize(batch: batch, replacing: entry)
+                guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+                await summarize(batch: batch, replacing: entry, workflowID: workflowID)
             } catch {
+                guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
                 phase = .failed
                 lastError = error.localizedDescription
                 await notifications.notifyFailure(message: error.localizedDescription, interval: entry.interval)
             }
         }
+        activeWorkflowTask = task
     }
 
     func requestNotificationAuthorization() async {
@@ -198,6 +212,7 @@ final class AppController: ObservableObject {
     }
 
     func clearAllHistory() {
+        cancelActiveWorkflow()
         if showsInMemoryDemoData {
             demoEntries.removeAll()
             reloadHistory()
@@ -226,6 +241,7 @@ final class AppController: ObservableObject {
     }
 
     func delete(_ entry: HistoryEntry) {
+        cancelActiveWorkflow()
         if showsInMemoryDemoData {
             demoEntries.removeAll { $0.id == entry.id }
             reloadHistory()
@@ -242,6 +258,13 @@ final class AppController: ObservableObject {
     }
 
     func refreshCLIStatuses() async {
+        // Menu-bar, history, and settings scenes can all trigger a refresh when they appear.
+        // Avoid running several CLI probes concurrently and allowing an older result to win the
+        // race when the user opens/closes settings repeatedly.
+        guard !isRefreshingCLIStatuses else { return }
+        isRefreshingCLIStatuses = true
+        defer { isRefreshingCLIStatuses = false }
+
         let preferences = SummarizerPreferences(defaults: defaults)
         var refreshed: [CLIKind: CLIStatus] = [:]
 
@@ -364,6 +387,9 @@ final class AppController: ObservableObject {
                 phase = .idle
             }
         } else {
+            // Do not let a collection/summary task started before the setting change publish
+            // `.idle` or `.failed` after the controller has entered the disabled state.
+            cancelActiveWorkflow()
             monitor.stop()
             sessionCountTask?.cancel()
             sessionCountTask = nil
@@ -384,10 +410,6 @@ final class AppController: ObservableObject {
                     options: [.automaticTerminationDisabled],
                     reason: "CapsStack background monitoring"
                 )
-            }
-            // Best-effort: keep login item registered so the app relaunches after logout/reboot.
-            if SMAppService.mainApp.status != .enabled {
-                try? SMAppService.mainApp.register()
             }
         } else {
             if let activity = backgroundActivity {
@@ -433,17 +455,20 @@ final class AppController: ObservableObject {
         let quickMemo = QuickMemoPreferences(defaults: defaults).trimmedText
         let primary = SummarizerPreferences(defaults: defaults).primary
         let sources = CollectorPreferences(defaults: defaults).enabledSources
-        Task {
+        let workflowID = beginWorkflow()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.finishWorkflow(workflowID) }
+
             var batch = await collect(interval: interval, sources: sources)
+            guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
             batch.quickMemo = quickMemo
-            if quickMemo != nil {
-                QuickMemoPreferences(text: "").save(to: defaults)
-            }
             batch = AwayBatchPreparation.addingSyntheticMemoSession(batch, provider: primary)
 
             activeSessionCount = batch.sessions.count
 
             if batch.sessions.isEmpty {
+                guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
                 saveEmptyHistory(batch: batch, requestedSources: sources)
                 phase = .idle
                 activeSessionCount = 0
@@ -452,9 +477,16 @@ final class AppController: ObservableObject {
 
             do {
                 let pending = try historyStore.savePending(batch: batch)
+                // Keep the memo until its raw batch is safely persisted. If collection or
+                // persistence is cancelled, the user's note remains available for the next run.
+                if quickMemo != nil {
+                    QuickMemoPreferences(text: "").save(to: defaults)
+                }
+                guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
                 reloadHistory()
-                await summarize(batch: batch, replacing: pending)
+                await summarize(batch: batch, replacing: pending, workflowID: workflowID)
             } catch {
+                guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
                 lastError = error.localizedDescription
                 phase = .failed
                 reloadHistory()
@@ -462,14 +494,20 @@ final class AppController: ObservableObject {
             }
             activeSessionCount = 0
         }
+        activeWorkflowTask = task
     }
 
-    private func summarize(batch: CollectionBatch, replacing pendingEntry: HistoryEntry) async {
+    private func summarize(
+        batch: CollectionBatch,
+        replacing pendingEntry: HistoryEntry,
+        workflowID: UInt
+    ) async {
         do {
             let outcome = try await summarizer.summarize(
                 batch: batch,
                 preferences: SummarizerPreferences(defaults: defaults)
             )
+            guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
             _ = try historyStore.saveCompleted(
                 batch: batch,
                 outcome: outcome,
@@ -495,6 +533,7 @@ final class AppController: ObservableObject {
                 pendingArtifactID: pendingEntry.pendingArtifactID,
                 quickMemo: pendingEntry.quickMemo
             )
+            guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
             _ = try? historyStore.replace(failed)
             reloadHistory()
             phase = .failed
@@ -514,6 +553,38 @@ final class AppController: ObservableObject {
         )
         _ = try? historyStore.save(entry)
         reloadHistory()
+    }
+
+    /// Starts a new serialized collection/summary workflow and invalidates any older one. The
+    /// generation check is still required after cancellation because synchronous collectors may
+    /// finish after their parent task has been cancelled.
+    private func beginWorkflow() -> UInt {
+        activeWorkflowTask?.cancel()
+        workflowGeneration &+= 1
+        return workflowGeneration
+    }
+
+    private func isCurrentWorkflow(_ id: UInt) -> Bool {
+        workflowGeneration == id
+    }
+
+    private func finishWorkflow(_ id: UInt) {
+        guard isCurrentWorkflow(id) else { return }
+        activeWorkflowTask = nil
+        activeSessionCount = 0
+    }
+
+    /// Cancels in-flight work before a destructive/history or settings action changes the state.
+    /// The active task may still be draining a detached collector, but its generation is stale so
+    /// it cannot mutate history or phase when it returns.
+    private func cancelActiveWorkflow() {
+        activeWorkflowTask?.cancel()
+        activeWorkflowTask = nil
+        workflowGeneration &+= 1
+        if phase == .summarizing {
+            phase = isCapsStackEnabled ? .idle : .disabled
+            activeSessionCount = 0
+        }
     }
 
     private func collect(interval: AwayInterval, sources: Set<CLIKind>) async -> CollectionBatch {

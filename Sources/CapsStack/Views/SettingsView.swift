@@ -85,9 +85,6 @@ struct SettingsView: View {
         .onAppear {
             launchAtLogin.refresh()
             controller.start()
-            if keepRunningInBackground, !launchAtLogin.isEnabled {
-                launchAtLogin.setEnabled(true)
-            }
         }
     }
 
@@ -337,7 +334,7 @@ private struct GeneralSettingsView: View {
                     get: { keepRunningInBackground },
                     set: { newValue in
                         keepRunningInBackground = newValue
-                        launchAtLogin.setEnabled(newValue)
+                        controller.setKeepRunningInBackground(newValue)
                     }
                 ))
                 Toggle("ログイン時に起動", isOn: Binding(
@@ -355,11 +352,6 @@ private struct GeneralSettingsView: View {
         .scrollContentBackground(.hidden)
         .onChange(of: suppressOriginalCapsLock) { _, newValue in
             controller.setSuppressOriginalCapsLock(newValue)
-        }
-        .onChange(of: keepRunningInBackground) { _, newValue in
-            if newValue, !launchAtLogin.isEnabled {
-                launchAtLogin.setEnabled(true)
-            }
         }
     }
 }

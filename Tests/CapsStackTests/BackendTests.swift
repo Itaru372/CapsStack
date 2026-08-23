@@ -312,6 +312,73 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(store.load().first).quickMemo, "ChatGPT GUIで仕様を確認中")
     }
 
+    func testHistoryStoreDoesNotResurrectDeletedPendingEntry() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-deleted-pending-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let store = HistoryStore(directoryURL: directory)
+        let batch = makeBatch()
+        let pending = try store.savePending(batch: batch)
+        let pendingID = try XCTUnwrap(pending.pendingArtifactID)
+        try store.delete(pending.id)
+
+        XCTAssertThrowsError(
+            try store.saveCompleted(
+                batch: batch,
+                outcome: SummaryOutcome(
+                    document: makeDocument("late completion"),
+                    provider: .codex,
+                    fallbackUsed: false
+                ),
+                replacingPendingID: pendingID
+            )
+        ) { error in
+            XCTAssertEqual(error as? HistoryStoreError, .pendingArtifactNotFound(pendingID))
+        }
+        XCTAssertThrowsError(try store.replace(pending)) { error in
+            XCTAssertEqual(error as? HistoryStoreError, .invalidHistoryData)
+        }
+        XCTAssertTrue(try store.load().isEmpty)
+    }
+
+    @MainActor
+    func testAppControllerRetrySetsSynchronousBusyGuard() async throws {
+        let suiteName = "CapsStackRetryGuardTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = HistoryStore(directoryURL: directory)
+        let batch = makeBatch()
+        let pending = try store.savePending(batch: batch)
+        let runner = DelayedProcessRunner()
+        let controller = AppController(
+            defaults: defaults,
+            resolver: StaticCLIResolver(),
+            runner: runner,
+            historyStore: store,
+            notifications: SilentBackendNotificationService()
+        )
+        controller.reloadHistory()
+
+        controller.retry(pending)
+        XCTAssertEqual(controller.phase, .summarizing)
+        // A second click arrives before the first async task has reached the provider. It must
+        // be ignored rather than creating another summary task for the same pending artifact.
+        controller.retry(pending)
+        XCTAssertEqual(controller.phase, .summarizing)
+
+        try await Task.sleep(nanoseconds: 250_000_000)
+        XCTAssertEqual(runner.callCount, 1)
+        XCTAssertEqual(try store.load().count, 1)
+        XCTAssertEqual(try store.load().first?.status, .completed)
+    }
+
     func testSummaryMarkdownIncludesMemoAndSections() {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let document = SummaryDocument(
@@ -508,4 +575,38 @@ private final class RecordingProcessRunner: ProcessRunning, @unchecked Sendable 
             didTruncateOutput: false
         )
     }
+}
+
+private final class DelayedProcessRunner: ProcessRunning, @unchecked Sendable {
+    private let stateQueue = DispatchQueue(label: "CapsStackTests.DelayedProcessRunner")
+    private var invocations = 0
+
+    var callCount: Int {
+        stateQueue.sync { invocations }
+    }
+
+    func run(_ specification: ProcessSpecification, timeout: TimeInterval) async throws -> ProcessResult {
+        stateQueue.sync { invocations += 1 }
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        let document = "{\"overview\":\"retry\",\"progress\":[],\"currentState\":[],\"decisions\":[],\"blockers\":[],\"nextSteps\":[],\"sessions\":[]}".data(using: .utf8)!
+        return ProcessResult(
+            terminationStatus: 0,
+            standardOutput: document,
+            standardError: Data(),
+            didTruncateOutput: false
+        )
+    }
+}
+
+private final class SilentBackendNotificationService: NotificationServicing {
+    func requestAuthorization() async -> Bool { false }
+
+    func notify(
+        outcome: SummaryOutcome,
+        interval: AwayInterval,
+        sessionCount: Int
+    ) async {}
+
+    func notifyFailure(message: String, interval: AwayInterval?) async {}
 }

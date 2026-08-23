@@ -71,6 +71,38 @@ final class ModelTests: XCTestCase {
         XCTAssertNil(summarizer.modelOverride(for: .pi))
     }
 
+    func testRepeatedPreferenceReadsDoNotRepostDefaultsChanges() throws {
+        let suiteName = "CapsStackPreferenceNotificationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Prime registration before observing. Reads that follow must not call
+        // register(defaults:) again and must therefore not feed AppController's observer loop.
+        _ = AwayThresholdPreferences(defaults: defaults)
+        _ = CapsStackFeaturePreferences(defaults: defaults)
+        _ = CollectorPreferences(defaults: defaults)
+        _ = SummarizerPreferences(defaults: defaults)
+
+        var changeCount = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: nil
+        ) { _ in
+            changeCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        for _ in 0..<100 {
+            _ = AwayThresholdPreferences(defaults: defaults)
+            _ = CapsStackFeaturePreferences(defaults: defaults)
+            _ = CollectorPreferences(defaults: defaults)
+            _ = SummarizerPreferences(defaults: defaults)
+        }
+
+        XCTAssertEqual(changeCount, 0)
+    }
+
     func testSummaryDocumentRoundTripsAsJSON() throws {
         let document = SummaryDocument(
             overview: "認証フローを整理しました。",

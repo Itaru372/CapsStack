@@ -27,6 +27,32 @@ enum PreferenceKeys {
     static let quickMemo = "quickMemo"
 }
 
+/// Registers the app's UserDefaults domain once per UserDefaults instance. Calling
+/// `register(defaults:)` from every preference read emits `UserDefaults.didChangeNotification`
+/// on macOS; AppController observes that notification, so repeated reads can otherwise recurse
+/// indefinitely while the settings/menu-bar scenes are open.
+private enum PreferenceDefaults {
+    private static let registrationMarker = "CapsStack.preferenceDefaultsRegistered"
+
+    static func register(on defaults: UserDefaults) {
+        guard defaults.object(forKey: registrationMarker) == nil else { return }
+
+        defaults.register(defaults: [
+            registrationMarker: true,
+            PreferenceKeys.capsStackEnabled: true,
+            PreferenceKeys.keepRunningInBackground: true,
+            PreferenceKeys.suppressOriginalCapsLock: false,
+            PreferenceKeys.collectCodex: true,
+            PreferenceKeys.collectClaude: true,
+            PreferenceKeys.collectOpenCode: false,
+            PreferenceKeys.collectPi: false,
+            PreferenceKeys.primarySummarizer: CLIKind.codex.rawValue,
+            PreferenceKeys.automaticFallback: true,
+            PreferenceKeys.minimumAwayDuration: 0
+        ])
+    }
+}
+
 /// Minimum seconds Caps Lock must stay ON before a summary is attempted.
 struct AwayThresholdPreferences: Equatable, Sendable {
     var minimumAwaySeconds: Int
@@ -34,9 +60,7 @@ struct AwayThresholdPreferences: Equatable, Sendable {
     static let `default` = AwayThresholdPreferences(minimumAwaySeconds: 0)
 
     init(defaults: UserDefaults = .standard) {
-        defaults.register(defaults: [
-            PreferenceKeys.minimumAwayDuration: 0
-        ])
+        PreferenceDefaults.register(on: defaults)
         let stored = defaults.integer(forKey: PreferenceKeys.minimumAwayDuration)
         self.init(minimumAwaySeconds: max(0, min(stored, 3600)))
     }
@@ -75,11 +99,7 @@ struct CapsStackFeaturePreferences: Equatable, Sendable {
     var suppressOriginalCapsLock: Bool
 
     init(defaults: UserDefaults = .standard) {
-        defaults.register(defaults: [
-            PreferenceKeys.capsStackEnabled: true,
-            PreferenceKeys.keepRunningInBackground: true,
-            PreferenceKeys.suppressOriginalCapsLock: false
-        ])
+        PreferenceDefaults.register(on: defaults)
         isEnabled = defaults.object(forKey: PreferenceKeys.capsStackEnabled) as? Bool ?? true
         keepRunningInBackground = defaults.object(forKey: PreferenceKeys.keepRunningInBackground) as? Bool ?? true
         suppressOriginalCapsLock = defaults.object(forKey: PreferenceKeys.suppressOriginalCapsLock) as? Bool ?? false
@@ -96,12 +116,7 @@ struct CollectorPreferences: Equatable, Sendable {
     var enabledSources: Set<CLIKind>
 
     init(defaults: UserDefaults = .standard) {
-        defaults.register(defaults: [
-            PreferenceKeys.collectCodex: true,
-            PreferenceKeys.collectClaude: true,
-            PreferenceKeys.collectOpenCode: false,
-            PreferenceKeys.collectPi: false
-        ])
+        PreferenceDefaults.register(on: defaults)
         var sources = Set<CLIKind>()
         if defaults.bool(forKey: PreferenceKeys.collectCodex) { sources.insert(.codex) }
         if defaults.bool(forKey: PreferenceKeys.collectClaude) { sources.insert(.claudeCode) }
@@ -123,10 +138,7 @@ struct SummarizerPreferences: Equatable, Sendable {
     var reasoningOverrides: [CLIKind: String]
 
     init(defaults: UserDefaults = .standard) {
-        defaults.register(defaults: [
-            PreferenceKeys.primarySummarizer: CLIKind.codex.rawValue,
-            PreferenceKeys.automaticFallback: true
-        ])
+        PreferenceDefaults.register(on: defaults)
         primary = CLIKind(rawValue: defaults.string(forKey: PreferenceKeys.primarySummarizer) ?? "") ?? .codex
         automaticFallback = defaults.bool(forKey: PreferenceKeys.automaticFallback)
         executableOverrides = [

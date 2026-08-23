@@ -83,7 +83,11 @@ final class HistoryStore: @unchecked Sendable {
 
     @discardableResult
     func replace(_ entry: HistoryEntry) throws -> HistoryEntry {
-        try save(entry)
+        // A replacement must never silently recreate an entry that was deleted while an
+        // asynchronous summary was in flight. Treating this as an upsert can resurrect a
+        // history row after the user explicitly removed it (and can create duplicates when two
+        // retry tasks complete at the same time).
+        try replace(id: entry.id, with: entry)
     }
 
     @discardableResult
@@ -212,8 +216,17 @@ final class HistoryStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         var entries = try loadUnlocked()
-        let existing = replacingPendingID.flatMap { pendingID in
-            entries.first(where: { $0.pendingArtifactID == pendingID })
+        let existing: HistoryEntry?
+        if let replacingPendingID {
+            // A caller supplied an artifact ID because it intends to replace that exact pending
+            // row. If another operation already completed or deleted it, fail instead of
+            // appending a second completed entry.
+            guard let matching = entries.first(where: { $0.pendingArtifactID == replacingPendingID }) else {
+                throw HistoryStoreError.pendingArtifactNotFound(replacingPendingID)
+            }
+            existing = matching
+        } else {
+            existing = nil
         }
         let entry = HistoryEntry(
             id: existing?.id ?? UUID(),
