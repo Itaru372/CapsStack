@@ -12,34 +12,38 @@ final class BrandRenderingTests: XCTestCase {
 
         let historyDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(suiteName, isDirectory: true)
+        let historyStore = HistoryStore(directoryURL: historyDirectory)
+        try makeSampleEntry(in: historyStore)
+
         let controller = AppController(
             defaults: defaults,
-            historyStore: HistoryStore(directoryURL: historyDirectory),
+            historyStore: historyStore,
             notifications: SilentNotificationService()
         )
+        controller.reloadHistory()
 
         let menuBar = try render(
             MenuBarView(controller: controller)
-                .frame(width: 316, height: 300, alignment: .top)
-                .background(Color(nsColor: .windowBackgroundColor)),
-            size: CGSize(width: 316, height: 300)
+                .frame(width: 316, height: 340, alignment: .top)
+                .background(BrandPalette.BriefTheme.panel),
+            size: CGSize(width: 316, height: 340)
         )
         let settings = try render(
             SettingsView(controller: controller)
-                .frame(width: 640, height: 560)
-                .background(Color(nsColor: .windowBackgroundColor)),
-            size: CGSize(width: 640, height: 560)
+                .frame(width: 980, height: 680)
+                .background(BrandPalette.BriefTheme.canvas),
+            size: CGSize(width: 980, height: 680)
         )
         let history = try render(
             HistoryView(controller: controller)
-                .frame(width: 820, height: 560)
-                .background(Color(nsColor: .windowBackgroundColor)),
-            size: CGSize(width: 820, height: 560)
+                .frame(width: 1120, height: 740)
+                .background(BrandPalette.BriefTheme.canvas),
+            size: CGSize(width: 1120, height: 740)
         )
 
-        XCTAssertEqual(menuBar.size, CGSize(width: 316, height: 300))
-        XCTAssertEqual(settings.size, CGSize(width: 640, height: 560))
-        XCTAssertEqual(history.size, CGSize(width: 820, height: 560))
+        XCTAssertEqual(menuBar.size, CGSize(width: 316, height: 340))
+        XCTAssertEqual(settings.size, CGSize(width: 980, height: 680))
+        XCTAssertEqual(history.size, CGSize(width: 1120, height: 740))
 
         if let outputPath = ProcessInfo.processInfo.environment["CAPSSTACK_QA_OUTPUT"] {
             let outputDirectory = URL(fileURLWithPath: outputPath, isDirectory: true)
@@ -79,6 +83,36 @@ final class BrandRenderingTests: XCTestCase {
         let image = NSImage(size: size)
         image.addRepresentation(representation)
         return image
+    }
+
+    private func makeSampleEntry(in store: HistoryStore) throws {
+        let start = Calendar.current.date(byAdding: .day, value: -1, to: .now) ?? .now
+        let end = start.addingTimeInterval(8_322)
+        let summary = SummaryDocument(
+            overview: "退席中の4セッションを整理しました。",
+            progress: ["ユーザー認証フローにパスキー認証を追加", "チーム招待APIの権限チェックを実装"],
+            currentState: ["CIは安定しています"],
+            decisions: ["招待リンクの有効期限は7日間とする"],
+            blockers: ["リカバリーフローのレビュー待ち"],
+            nextSteps: ["招待メールの文面をレビュー", "リカバリーフローを実装する"],
+            sessions: []
+        )
+        let session = CollectedSessionArtifact(
+            id: "qa-session",
+            provider: .codex,
+            workingDirectory: nil,
+            events: [CollectedEvent(timestamp: start, kind: "message", content: "sample")],
+            wasTruncated: false
+        )
+        _ = try store.saveCompleted(
+            batch: CollectionBatch(
+                interval: AwayInterval(start: start, end: end),
+                sessions: [session],
+                issues: [],
+                quickMemo: "GUIエージェントの補足メモ"
+            ),
+            outcome: SummaryOutcome(document: summary, provider: .codex, fallbackUsed: false)
+        )
     }
 
     private func writePNG(_ image: NSImage, to url: URL) throws {

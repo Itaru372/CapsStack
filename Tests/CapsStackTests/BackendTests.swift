@@ -286,6 +286,112 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(failedEntry.errorMessage, "timeout")
     }
 
+    func testHistoryStorePreservesQuickMemoAcrossPendingAndCompleted() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-memo-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let store = HistoryStore(directoryURL: directory)
+        var batch = makeBatch()
+        batch.quickMemo = "ChatGPT GUIで仕様を確認中"
+        let pending = try store.savePending(batch: batch, errorMessage: nil)
+        XCTAssertEqual(pending.quickMemo, "ChatGPT GUIで仕様を確認中")
+
+        let outcome = SummaryOutcome(
+            document: makeDocument("completed"),
+            provider: .codex,
+            fallbackUsed: false
+        )
+        let completed = try store.saveCompleted(
+            batch: batch,
+            outcome: outcome,
+            replacingPendingID: try XCTUnwrap(pending.pendingArtifactID)
+        )
+        XCTAssertEqual(completed.quickMemo, "ChatGPT GUIで仕様を確認中")
+        XCTAssertEqual(try XCTUnwrap(store.load().first).quickMemo, "ChatGPT GUIで仕様を確認中")
+    }
+
+    func testSummaryMarkdownIncludesMemoAndSections() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let document = SummaryDocument(
+            overview: "要約の概要",
+            progress: ["実装を進めた"],
+            currentState: [],
+            decisions: ["設計を確定"],
+            blockers: [],
+            nextSteps: ["テストを追加"],
+            sessions: []
+        )
+        let entry = HistoryEntry(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(125)),
+            status: .completed,
+            summary: document,
+            provider: .claudeCode,
+            fallbackUsed: true,
+            sessionCount: 2,
+            sources: [.codex],
+            collectionIssues: [],
+            errorMessage: nil,
+            pendingArtifactID: nil,
+            quickMemo: "GUI版エージェントも動いていた"
+        )
+
+        let markdown = SummaryMarkdown.document(document, entry: entry)
+
+        XCTAssertTrue(markdown.contains("要約の概要"))
+        XCTAssertTrue(markdown.contains("## 進んだ内容"))
+        XCTAssertTrue(markdown.contains("- 実装を進めた"))
+        XCTAssertTrue(markdown.contains("## 重要な判断"))
+        XCTAssertTrue(markdown.contains("## 次の予定"))
+        XCTAssertTrue(markdown.contains("**退席前メモ**: GUI版エージェントも動いていた"))
+        XCTAssertTrue(markdown.contains("Claude Code CLI（フォールバック）"))
+        XCTAssertTrue(markdown.contains("02:05"))
+    }
+
+    func testSummaryPromptIncludesQuickMemo() throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var batch = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: [],
+            issues: []
+        )
+        batch.quickMemo = "Cursorでリファクタリングしていた"
+        let promptData = try SummaryPromptFactory.prompt(for: batch, provider: .codex)
+        let prompt = String(decoding: promptData, as: UTF8.self)
+
+        XCTAssertTrue(prompt.contains("quickMemo"))
+        XCTAssertTrue(prompt.contains("Cursorでリファクタリングしていた"))
+    }
+
+    func testAwayBatchPreparationAddsMemoOnlySessionWhenNoCLILogExists() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let empty = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: [],
+            issues: [],
+            quickMemo: "GUIエージェントだけ使っていた"
+        )
+
+        let prepared = AwayBatchPreparation.addingSyntheticMemoSession(empty, provider: .codex)
+
+        XCTAssertEqual(prepared.sessions.count, 1)
+        XCTAssertEqual(prepared.sessions.first?.id, "capsstack-quick-memo")
+        XCTAssertEqual(prepared.sessions.first?.events.first?.kind, "user-note")
+        XCTAssertEqual(prepared.sessions.first?.events.first?.content, "GUIエージェントだけ使っていた")
+    }
+
+    func testAwayBatchPreparationDoesNotOverrideCollectedSessions() {
+        let collected = makeBatch()
+        var batchWithMemo = collected
+        batchWithMemo.quickMemo = "補足メモ"
+
+        let prepared = AwayBatchPreparation.addingSyntheticMemoSession(batchWithMemo, provider: .codex)
+
+        XCTAssertEqual(prepared.sessions, collected.sessions)
+        XCTAssertEqual(prepared.quickMemo, "補足メモ")
+    }
+
     private func makeBatch() -> CollectionBatch {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let event = CollectedEvent(

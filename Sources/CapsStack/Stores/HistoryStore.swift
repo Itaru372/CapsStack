@@ -115,6 +115,22 @@ final class HistoryStore: @unchecked Sendable {
         try delete(entryID)
     }
 
+    /// Removes every summary and retry artifact. Intended for explicit data-management actions.
+    func deleteAll() throws {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let entries = try loadUnlocked()
+        try writeHistory([])
+        for entry in entries {
+            guard let pendingID = entry.pendingArtifactID else { continue }
+            let url = pendingURL(for: pendingID)
+            if fileManager.fileExists(atPath: url.path) {
+                try fileManager.removeItem(at: url)
+            }
+        }
+    }
+
     /// Saves raw input before a summary attempt. If the process crashes, the Pending artifact is
     /// enough to retry without rereading source logs.
     @discardableResult
@@ -132,7 +148,8 @@ final class HistoryStore: @unchecked Sendable {
             sources: sources(for: batch),
             collectionIssues: batch.issues,
             errorMessage: errorMessage,
-            pendingArtifactID: artifactID
+            pendingArtifactID: artifactID,
+            quickMemo: batch.quickMemo
         )
         var entries = try loadUnlocked()
         entries.append(entry)
@@ -209,7 +226,8 @@ final class HistoryStore: @unchecked Sendable {
             sources: sources(for: batch),
             collectionIssues: batch.issues,
             errorMessage: nil,
-            pendingArtifactID: nil
+            pendingArtifactID: nil,
+            quickMemo: batch.quickMemo
         )
         if let existingIndex = entries.firstIndex(where: { $0.id == entry.id }) {
             entries[existingIndex] = entry

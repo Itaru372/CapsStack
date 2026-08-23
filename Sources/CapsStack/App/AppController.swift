@@ -24,6 +24,8 @@ final class AppController: ObservableObject {
     @Published private(set) var isCapsStackEnabled: Bool
     @Published private(set) var isSuppressingOriginalCapsLock: Bool
     @Published private(set) var capsLockSuppressionError: String?
+    @Published private(set) var isNotificationAuthorized: Bool?
+    @Published private(set) var isShowingDemoData = false
 
     private let defaults: UserDefaults
     private let monitor: CapsLockMonitor
@@ -37,6 +39,8 @@ final class AppController: ObservableObject {
     private var sessionCountTask: Task<Void, Never>?
     private var backgroundActivity: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
+    private let showsInMemoryDemoData: Bool
+    private lazy var demoEntries = DemoHistoryContent.entries()
 
     init(
         defaults: UserDefaults = .standard,
@@ -44,7 +48,8 @@ final class AppController: ObservableObject {
         resolver: CLIResolving = CLIResolver(),
         runner: ProcessRunning = ProcessRunner(),
         historyStore: HistoryStore = HistoryStore(),
-        notifications: NotificationServicing = NotificationService()
+        notifications: NotificationServicing = NotificationService(),
+        showsInMemoryDemoData: Bool = ProcessInfo.processInfo.arguments.contains("--capsstack-demo-data")
     ) {
         self.defaults = defaults
         self.monitor = monitor
@@ -54,6 +59,7 @@ final class AppController: ObservableObject {
         self.summarizer = SummaryOrchestrator(resolver: resolver, runner: runner)
         self.historyStore = historyStore
         self.notifications = notifications
+        self.showsInMemoryDemoData = showsInMemoryDemoData
         let feature = CapsStackFeaturePreferences(defaults: defaults)
         self.isCapsStackEnabled = feature.isEnabled
         self.isSuppressingOriginalCapsLock = feature.suppressOriginalCapsLock
@@ -103,7 +109,7 @@ final class AppController: ObservableObject {
         }
 
         Task {
-            _ = await notifications.requestAuthorization()
+            isNotificationAuthorized = await notifications.requestAuthorization()
             await refreshCLIStatuses()
         }
 
@@ -187,7 +193,45 @@ final class AppController: ObservableObject {
         }
     }
 
+    func requestNotificationAuthorization() async {
+        isNotificationAuthorized = await notifications.requestAuthorization()
+    }
+
+    func clearAllHistory() {
+        if showsInMemoryDemoData {
+            demoEntries.removeAll()
+            reloadHistory()
+            return
+        }
+
+        do {
+            try historyStore.deleteAll()
+            reloadHistory()
+        } catch {
+            lastError = error.localizedDescription
+            phase = .failed
+        }
+    }
+
+    func clearQuickMemo() {
+        QuickMemoPreferences(text: "").save(to: defaults)
+    }
+
+    var historyDirectoryURL: URL {
+        historyStore.directoryURL
+    }
+
+    func revealHistoryFolder() {
+        NSWorkspace.shared.activateFileViewerSelecting([historyDirectoryURL])
+    }
+
     func delete(_ entry: HistoryEntry) {
+        if showsInMemoryDemoData {
+            demoEntries.removeAll { $0.id == entry.id }
+            reloadHistory()
+            return
+        }
+
         do {
             try historyStore.delete(entry.id)
             reloadHistory()
@@ -372,16 +416,31 @@ final class AppController: ObservableObject {
         awayStartedAt = nil
 
         let interval = AwayInterval(start: start, end: end)
+        let threshold = AwayThresholdPreferences(defaults: defaults)
         guard interval.duration >= 1 else {
             phase = .idle
             activeSessionCount = 0
             return
         }
 
+        if interval.duration < TimeInterval(threshold.minimumAwaySeconds) {
+            phase = .idle
+            activeSessionCount = 0
+            return
+        }
+
         phase = .summarizing
+        let quickMemo = QuickMemoPreferences(defaults: defaults).trimmedText
+        let primary = SummarizerPreferences(defaults: defaults).primary
         let sources = CollectorPreferences(defaults: defaults).enabledSources
         Task {
-            let batch = await collect(interval: interval, sources: sources)
+            var batch = await collect(interval: interval, sources: sources)
+            batch.quickMemo = quickMemo
+            if quickMemo != nil {
+                QuickMemoPreferences(text: "").save(to: defaults)
+            }
+            batch = AwayBatchPreparation.addingSyntheticMemoSession(batch, provider: primary)
+
             activeSessionCount = batch.sessions.count
 
             if batch.sessions.isEmpty {
@@ -433,7 +492,8 @@ final class AppController: ObservableObject {
                 sources: pendingEntry.sources,
                 collectionIssues: pendingEntry.collectionIssues,
                 errorMessage: error.localizedDescription,
-                pendingArtifactID: pendingEntry.pendingArtifactID
+                pendingArtifactID: pendingEntry.pendingArtifactID,
+                quickMemo: pendingEntry.quickMemo
             )
             _ = try? historyStore.replace(failed)
             reloadHistory()
@@ -480,7 +540,13 @@ final class AppController: ObservableObject {
         }
     }
 
-    private func reloadHistory() {
+    func reloadHistory() {
+        guard !showsInMemoryDemoData else {
+            history = demoEntries
+            isShowingDemoData = true
+            return
+        }
+
         history = historyStore.entries
     }
 }

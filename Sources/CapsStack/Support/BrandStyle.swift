@@ -31,6 +31,16 @@ enum BrandPalette {
         dark: rgb(0x2D, 0x28, 0x30)
     )
 
+    /// The approved return-brief design is intentionally dark-only. These fixed surfaces
+    /// keep cards readable when the system appearance changes around the app window.
+    enum BriefTheme {
+        static let canvas = rgbColor(0x10, 0x10, 0x13)
+        static let panel = rgbColor(0x18, 0x18, 0x1C)
+        static let card = rgbColor(0x21, 0x21, 0x26)
+        static let border = Color.white.opacity(0.08)
+        static let signal = rgbColor(0xC6, 0xF2, 0x4E)
+    }
+
     private static func rgb(_ red: Int, _ green: Int, _ blue: Int) -> NSColor {
         NSColor(
             srgbRed: CGFloat(red) / 255,
@@ -42,6 +52,10 @@ enum BrandPalette {
 
     private static func adaptive(light: NSColor, dark: NSColor) -> Color {
         Color(nsColor: adaptiveNS(light: light, dark: dark))
+    }
+
+    private static func rgbColor(_ red: Int, _ green: Int, _ blue: Int) -> Color {
+        Color(red: CGFloat(red) / 255, green: CGFloat(green) / 255, blue: CGFloat(blue) / 255)
     }
 
     private static func adaptiveNS(light: NSColor, dark: NSColor) -> NSColor {

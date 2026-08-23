@@ -18,6 +18,7 @@ struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
     let collectionIssues: [CollectionIssue]
     let errorMessage: String?
     let pendingArtifactID: UUID?
+    let quickMemo: String?
 
     init(
         id: UUID = UUID(),
@@ -30,7 +31,8 @@ struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         sources: [CLIKind],
         collectionIssues: [CollectionIssue] = [],
         errorMessage: String? = nil,
-        pendingArtifactID: UUID? = nil
+        pendingArtifactID: UUID? = nil,
+        quickMemo: String? = nil
     ) {
         self.id = id
         self.interval = interval
@@ -43,5 +45,6 @@ struct HistoryEntry: Codable, Equatable, Identifiable, Sendable {
         self.collectionIssues = collectionIssues
         self.errorMessage = errorMessage
         self.pendingArtifactID = pendingArtifactID
+        self.quickMemo = quickMemo
     }
 }

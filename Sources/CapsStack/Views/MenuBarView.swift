@@ -4,6 +4,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var controller: AppController
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(PreferenceKeys.quickMemo) private var quickMemoText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -17,7 +18,7 @@ struct MenuBarView: View {
                             .accessibilityHidden(true)
                         Text(controller.stateTitle)
                             .font(.headline)
-                            .foregroundStyle(BrandPalette.inkAubergine)
+                            .foregroundStyle(.primary)
                     }
                     Text(controller.stateDetail)
                         .font(.caption)
@@ -39,7 +40,7 @@ struct MenuBarView: View {
                         systemImage: "clock"
                     )
                     .font(.system(.body, design: .rounded).monospacedDigit())
-                    .foregroundStyle(BrandPalette.inkAubergine)
+                    .foregroundStyle(BrandPalette.BriefTheme.signal)
                 }
 
                 Label("検出セッション \(controller.activeSessionCount)件", systemImage: "terminal")
@@ -49,7 +50,22 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button {
+            if controller.phase != .away && controller.phase != .summarizing && controller.isCapsStackEnabled {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("退席前メモ（任意）")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $quickMemoText)
+                        .frame(minHeight: 36, maxHeight: 72)
+                        .font(.caption)
+                        .scrollContentBackground(.hidden)
+                        .background(BrandPalette.bone, in: RoundedRectangle(cornerRadius: 6))
+                }
+
+                Divider()
+            }
+
+                Button {
                 if controller.phase == .away {
                     controller.endAwayManually()
                 } else if controller.phase != .summarizing {
@@ -57,9 +73,7 @@ struct MenuBarView: View {
                 }
             } label: {
                 Label(
-                    controller.isCapsStackEnabled
-                        ? (controller.phase == .away ? "今すぐ復帰扱い" : "退席を開始")
-                        : "一時停止中のため無効",
+                    controller.phase == .away ? "今すぐ復帰" : "退席を開始",
                     systemImage: controller.phase == .away ? "person.crop.circle.badge.checkmark" : "figure.walk.departure"
                 )
                 .frame(maxWidth: .infinity)
@@ -67,7 +81,8 @@ struct MenuBarView: View {
             .disabled(!controller.isCapsStackEnabled || controller.phase == .summarizing || controller.phase == .disabled)
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .tint(primaryActionColor)
+            .tint(BrandPalette.BriefTheme.signal)
+            .foregroundStyle(.black)
 
             Button {
                 NSApp.activate(ignoringOtherApps: true)
@@ -89,9 +104,7 @@ struct MenuBarView: View {
         }
         .padding(16)
         .frame(width: 316)
-    }
-
-    private var primaryActionColor: Color {
-        controller.phase == .away ? BrandPalette.petrolSlate : BrandPalette.agedBrass
+        .background(BrandPalette.BriefTheme.panel)
+        .preferredColorScheme(.dark)
     }
 }

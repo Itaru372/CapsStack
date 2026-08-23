@@ -1,6 +1,6 @@
 # CapsStack
 
-Caps LockをONにしている間を「退席」とみなし、Codex CLI / Claude Code CLI / OpenCode / Piのセッション記録を収集して、選択したCLIとモデルで復帰時に要約するmacOSメニューバーアプリです。
+Caps LockをONにしている間を「退席」とみなし、Codex CLI / Claude Code CLI / OpenCode / Piのセッション記録を収集して、選択したCLIとモデルで復帰時に要約するmacOSアプリです。ネイティブメニューバー、履歴ウィンドウ、メニューバーポップオーバー、設定ウィンドウを備えます。
 
 ## 特徴
 
@@ -8,6 +8,9 @@ Caps LockをONにしている間を「退席」とみなし、Codex CLI / Claude
 - 要約担当CLIは収集元と無関係に選択
 - 要約担当ごとにモデルとReasoning（CLI固有のeffort / variant / thinking）を指定
 - 主担当が失敗した場合は利用可能な別CLIへ自動フォールバック
+- 退席前に任意メモを入力でき、CLIログがなくても要約を実行（GUI版エージェントの作業補足に対応）
+- 誤操作を防ぐ最短退席時間しきい値を設定可能
+- 履歴の要約をクリップボードへコピー、Markdownとして書き出し
 - 元セッションをresumeせず、隔離した一時ディレクトリで要約のみ実行
 - 成功時は生ログを削除し、失敗時だけ再要約用に保持
 - 履歴ウィンドウ、macOS通知、`.pkg`生成に対応
@@ -30,6 +33,12 @@ Caps LockをONにしている間を「退席」とみなし、Codex CLI / Claude
 OpenCodeは現行版がDB-backed storageを使うため、保存ファイルを直接JSONLとして解釈せず、公式CLIの一覧・export境界を使います。要約時は全CLIで元の作業ディレクトリをcwdにせず、読み取り専用またはツール無効の実行にしています。OpenCode要約のセッションDBも一時ディレクトリへ隔離します。
 
 モデルIDとReasoningの有効値はCLIやモデルごとに変わるため、設定欄は自由入力です。空欄なら各CLIの既定値を使います。OpenCodeのvariantはモデルごとに有効値が異なります。
+
+## GUI版エージェントと退席前メモ
+
+ChatGPTデスクトップアプリやCursorなど、JSONLログを読めないGUIエージェントの作業はCapsStackが直接収集できません。その代わり、メニューバーの「退席前メモ」に入力しておくと、復帰時の要約資料に含まれます。
+
+CLIセッションが一件も検出されず、退席前メモだけがある場合は、メモ単体を要約対象として扱います。これにより、GUI専用ワークフローや短い外出でも履歴が空になりません。
 
 実装時の照合先： [Codex exec CLI](https://github.com/openai/codex/blob/main/codex-rs/exec/src/cli.rs)、[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/cli-usage)、[OpenCode CLI](https://dev.opencode.ai/docs/cli/)、[OpenCode permissions](https://dev.opencode.ai/docs/permissions/)、[Pi usage](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/usage.md)。
 

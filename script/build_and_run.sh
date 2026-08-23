@@ -30,7 +30,11 @@ cp "$ROOT_DIR/Packaging/Info.plist" "$APP_CONTENTS/Info.plist"
 chmod +x "$APP_BINARY"
 
 open_app() {
-  /usr/bin/open -n "$APP_BUNDLE"
+  if [[ "${CAPSSTACK_DEMO_DATA:-0}" == "1" ]]; then
+    /usr/bin/open -n "$APP_BUNDLE" --args --capsstack-demo-data
+  else
+    /usr/bin/open -n "$APP_BUNDLE"
+  fi
 }
 
 case "$MODE" in

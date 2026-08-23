@@ -47,16 +47,53 @@ struct CollectionBatch: Codable, Equatable, Identifiable, Sendable {
     let interval: AwayInterval
     let sessions: [CollectedSessionArtifact]
     let issues: [CollectionIssue]
+    /// Optional user-written context recorded before stepping away. Travels inside the batch
+    /// artifact so retries preserve it and the summary prompt includes it naturally.
+    var quickMemo: String?
 
     init(
         id: UUID = UUID(),
         interval: AwayInterval,
         sessions: [CollectedSessionArtifact],
-        issues: [CollectionIssue]
+        issues: [CollectionIssue],
+        quickMemo: String? = nil
     ) {
         self.id = id
         self.interval = interval
         self.sessions = sessions
         self.issues = issues
+        self.quickMemo = quickMemo
+    }
+}
+
+/// Prepares a collected batch for summarization without mutating the collector result.
+enum AwayBatchPreparation {
+    /// GUI agents do not write the JSONL logs CapsStack reads. When only a quick memo exists,
+    /// represent it as one synthetic input so the summarizer still runs.
+    static func addingSyntheticMemoSession(
+        _ batch: CollectionBatch,
+        provider: CLIKind
+    ) -> CollectionBatch {
+        guard batch.sessions.isEmpty, let memo = batch.quickMemo else { return batch }
+
+        return CollectionBatch(
+            id: batch.id,
+            interval: batch.interval,
+            sessions: [
+                CollectedSessionArtifact(
+                    id: "capsstack-quick-memo",
+                    provider: provider,
+                    workingDirectory: nil,
+                    events: [CollectedEvent(
+                        timestamp: batch.interval.start,
+                        kind: "user-note",
+                        content: memo
+                    )],
+                    wasTruncated: false
+                )
+            ],
+            issues: batch.issues,
+            quickMemo: batch.quickMemo
+        )
     }
 }

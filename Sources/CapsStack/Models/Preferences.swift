@@ -23,6 +23,50 @@ enum PreferenceKeys {
     static let opencodeReasoning = "opencodeReasoning"
     static let piReasoning = "piReasoning"
     static let awayStart = "awayStart"
+    static let minimumAwayDuration = "minimumAwayDuration"
+    static let quickMemo = "quickMemo"
+}
+
+/// Minimum seconds Caps Lock must stay ON before a summary is attempted.
+struct AwayThresholdPreferences: Equatable, Sendable {
+    var minimumAwaySeconds: Int
+
+    static let `default` = AwayThresholdPreferences(minimumAwaySeconds: 0)
+
+    init(defaults: UserDefaults = .standard) {
+        defaults.register(defaults: [
+            PreferenceKeys.minimumAwayDuration: 0
+        ])
+        let stored = defaults.integer(forKey: PreferenceKeys.minimumAwayDuration)
+        self.init(minimumAwaySeconds: max(0, min(stored, 3600)))
+    }
+
+    init(minimumAwaySeconds: Int) {
+        self.minimumAwaySeconds = max(0, min(max(0, minimumAwaySeconds), 3600))
+    }
+}
+
+/// A user-written note captured before stepping away. GUI agents do not leave JSONL logs,
+/// so this note is the only supplementary input for those sessions during summarization.
+struct QuickMemoPreferences: Equatable, Sendable {
+    var text: String
+
+    init(text: String = "") {
+        self.text = text
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        text = defaults.string(forKey: PreferenceKeys.quickMemo) ?? ""
+    }
+
+    func save(to defaults: UserDefaults = .standard) {
+        defaults.set(trimmedText ?? "", forKey: PreferenceKeys.quickMemo)
+    }
+
+    var trimmedText: String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 struct CapsStackFeaturePreferences: Equatable, Sendable {

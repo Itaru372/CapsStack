@@ -1,55 +1,44 @@
-# CapsStack Brand Implementation QA
+# CapsStack Selected Design QA
 
 final result: passed
 
-## Comparison target
+## Scope
 
-- Source visual: `Design/Brand/capsstack-brand-board.png` (1487 × 1058 px).
-- Primary implementation capture: `.build/qa/menu-bar.png` (632 × 600 px, representing the 316 × 300 pt menu-bar surface at 2× density).
-- Combined comparison evidence: `.build/qa/brand-menu-comparison.png`.
-- Supporting native-surface captures: `.build/qa/settings.png` and `.build/qa/history.png`.
+- Reference visual: the approved dark return-brief composition selected from the 4–6 direction set.
+- Implementation target: native macOS history window, settings window, application menu bar, and menu-bar popover.
+- Adjustment applied: the progress, decision, and next-step section headings and marks use compact hierarchy rather than oversized claims.
 
-The source is an identity board rather than a pixel-exact application screen. Layout fidelity is therefore evaluated against the board's menu-popover specimen and brand rules, while the existing native macOS information architecture remains intentionally unchanged.
+## Verified behavior
 
-## Findings and fixes
+### History
 
-### Resolved P1 — icon detail drift
+- The dark history surface opens as a regular macOS window at launch.
+- August date cards show per-day session counts, durations, activity bars, and selected state.
+- The selected interval card shows start/end time, total duration, session count, copy action, export/retry/delete actions, and brief metadata.
+- The large 復帰ブリーフ heading is followed by compact 進捗 / 決定 / 次の一手 sections.
+- Supplemental current-state, blocker, memo, collection-issue, creation-time, model, fallback, and character-count data remain available without inventing per-section CLI timing that the summary model does not provide.
 
-The first implementation export used two summary bars, while the approved application-icon and 16 px menu-bar specimens use three. Both production masters were corrected to three evenly spaced bars, the SwiftPM resources were replaced, the macOS AppIcon set and `AppIcon.icns` were regenerated, and the menu-bar surface was captured again.
+### Settings
 
-Post-fix evidence: the app icon in `.build/qa/menu-bar.png` and the focused comparison in `.build/qa/brand-menu-comparison.png` show the three-bar form.
+- The fixed-width dark sidebar contains 収集元, 要約担当, 一般, 通知, ホットキー, データ管理, and 詳細設定.
+- The search field filters categories and keeps the detail pane synchronized with the visible selection.
+- Collector rows preserve independent toggles plus runtime log-directory/readability status.
+- Summary assignment, automatic fallback, general feature/background/accessibility controls, notification authorization, built-in shortcuts, local-data management, executable overrides, model overrides, reasoning overrides, and provider tests remain functional.
 
-### Resolved P2 — runtime image rendering
+### Native chrome
 
-The first offscreen render reserved the brand-icon frame but did not paint the resource-backed image. Resource loading now resolves the packaged SwiftPM bundle to `NSImage` before constructing the SwiftUI image. The branded app icon is visible and sharp in the final menu-bar capture.
+- CapsStack now runs as a regular app with its main history window, Dock presence, and native menu bar.
+- Menu order is `CapsStack`, `履歴`, `設定`, `編集`, `表示`, `ウインドウ`, `ヘルプ`.
+- The menu-bar popover retains away-state timer, active-session count, quick-memo input, immediate return/history/settings/quit actions.
 
-### Resolved P1 — oversized menu-bar item
+## Demo data
 
-The custom mark filled an 18 pt menu-bar frame with substantially more visual mass than neighboring system items. The menu-bar label now uses a 26 pt display frame so the visible mark matches neighboring menu-bar icons, with its status dot recolored by phase. The larger app icon remains the application icon and popover identity.
+The demo history is opt-in and memory-only. It is enabled for this local verification run by launching with `CAPSSTACK_DEMO_DATA=1` (which passes `--capsstack-demo-data`). Normal launches read only the real history store; demo deletion/clearing never writes to that store. A regression test proves the real store remains empty during demo deletion.
 
-## Required fidelity surfaces
+## Verification
 
-- Fonts and typography: native macOS system typography is retained inside the product, matching the approved guidance. The headline, supporting copy, button labels, and secondary actions have clear weight and size hierarchy with no clipping or awkward wrapping.
-- Spacing and layout rhythm: the 316 pt popover keeps a spacious 16 pt outer inset, a compact brand/status header, lightweight dividers, one clear primary action, and separated secondary actions. No card nesting or decorative container clutter was introduced.
-- Colors and visual tokens: Ink Aubergine, Aged Brass, Petrol Slate, Rice Paper, and Bone are implemented as centralized adaptive tokens. System red remains reserved for failure. State color is always paired with text or an icon.
-- Image quality and asset fidelity: the approved mark is shipped as a 1024 px RGBA app-icon master, a compact 64 px RGBA menu-bar asset, a complete macOS AppIcon asset set, and compiled `AppIcon.icns`.
-- Copy and content: existing concise Japanese product copy remains intact. No invented tagline or feature claim was added.
-- Icons: the custom CapsStack mark is used for the application and popover identity. The menu-bar status item uses the compact mark with a phase-aware status dot; standard actions continue to use macOS SF Symbols.
-- States and interactions: the primary away/return action, history opening, settings link, quit action, native history selection, and settings controls remain functional code paths. The brand pass did not replace controls with static chrome.
-- Accessibility: the menu-bar item exposes `CapsStack — <current state>` as its accessibility label. The visible state dot has a textual state title, and destructive/error meaning does not rely on brand color.
-
-## Intentional differences and P3 follow-up
-
-- The source board uses English specimen labels; the product correctly keeps its existing Japanese UI.
-- Offscreen native captures show inactive-control styling and do not reproduce every window-chrome detail. This does not change the implemented brand tokens or application layout.
-- The full wordmark remains a visual brand reference and is not placed inside the compact product UI, where the app icon and native title are more appropriate.
-
-## Verification checklist
-
-- [x] App icon matches the approved three-bar symbol; the menu bar uses the original compact mark with a phase-aware status dot.
-- [x] Brand colors are centralized and adaptive for light/dark appearance.
-- [x] Menu-bar, history, and settings surfaces compile with the new styling.
-- [x] Resource-loading regression test passes.
-- [x] Branded-surface rendering test passes.
-- [x] SwiftPM test suite passes.
-- [x] Staged `.app` bundle builds and launches successfully.
+- `swift build` passed.
+- `swift test` passed: 23 tests, 0 failures.
+- `CAPSSTACK_DEMO_DATA=1 ./script/build_and_run.sh --verify` built and launched the packaged app successfully.
+- Runtime capture showed the demo badge, August 18–23 cards, selected 8/23 session (`2:18:42`, four sessions), and the three compact brief sections.
+- A temporary AppKit diagnostic confirmed the final native menu order; it was removed before handoff.
