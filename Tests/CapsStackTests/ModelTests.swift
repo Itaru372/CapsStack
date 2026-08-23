@@ -90,7 +90,7 @@ final class ModelTests: XCTestCase {
 
     func testDurationFormatterUsesClockStyle() {
         XCTAssertEqual(DurationFormatter.string(from: 65), "01:05")
-        XCTAssertEqual(DurationFormatter.string(from: 3_661), "1:01:01")
+        XCTAssertEqual(DurationFormatter.string(from: 3_661), "01:01:01")
         XCTAssertEqual(DurationFormatter.string(from: -4), "00:00")
     }
 

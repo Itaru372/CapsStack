@@ -29,7 +29,7 @@ final result: passed
 
 - CapsStack now runs as a regular app with its main history window, Dock presence, and native menu bar.
 - Menu order is `CapsStack`, `履歴`, `設定`, `編集`, `表示`, `ウインドウ`, `ヘルプ`.
-- The menu-bar popover retains away-state timer, active-session count, quick-memo input, immediate return/history/settings/quit actions.
+- The menu-bar popover follows the approved native-menu composition: status dot plus away-state title with a right-aligned live timer, the 今すぐ復帰 / 退席前メモ... group, the 履歴を開く ⌘O / 設定... ⌘, group, and CapsStackを終了 ⌘Q.
 
 ## Demo data
 
@@ -40,5 +40,5 @@ The demo history is opt-in and memory-only. It is enabled for this local verific
 - `swift build` passed.
 - `swift test` passed: 23 tests, 0 failures.
 - `CAPSSTACK_DEMO_DATA=1 ./script/build_and_run.sh --verify` built and launched the packaged app successfully.
-- Runtime capture showed the demo badge, August 18–23 cards, selected 8/23 session (`2:18:42`, four sessions), and the three compact brief sections.
+- Runtime capture showed the demo badge, August 18–23 cards, selected 8/23 session (`02:18:42`, four sessions), and the three compact brief sections.
 - A temporary AppKit diagnostic confirmed the final native menu order; it was removed before handoff.

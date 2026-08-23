@@ -5,6 +5,18 @@ import XCTest
 
 @MainActor
 final class BrandRenderingTests: XCTestCase {
+    func testMenuReorderingClampsPartiallyInstalledMenu() {
+        let menu = NSMenu(title: "Main")
+        menu.addItem(NSMenuItem(title: "CapsStack", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "ヘルプ", action: nil, keyEquivalent: ""))
+
+        // During SwiftUI startup the menu can contain only a subset of the expected items. The
+        // arranger must append safely instead of asking AppKit to insert past numberOfItems.
+        AppDelegate.moveFirstMenuItem(in: menu, matching: ["ヘルプ"], to: 6)
+
+        XCTAssertEqual(menu.items.map(\.title), ["CapsStack", "ヘルプ"])
+    }
+
     func testBrandedSurfacesRender() throws {
         let suiteName = "CapsStackBrandRenderingTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

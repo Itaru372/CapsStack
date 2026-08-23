@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var menuArrangementGeneration = 0
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // The approved design uses a regular macOS window plus the native menu bar,
         // while MenuBarExtra keeps away/return controls available system-wide.
@@ -32,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func arrangeMainMenu() {
         // SwiftUI finishes installing scene commands asynchronously after launch ownership
         // settles. A bounded retry window covers that handoff without polling indefinitely.
+        menuArrangementGeneration &+= 1
+        let generation = menuArrangementGeneration
         let attempts: [(delay: TimeInterval, allowsEditFallback: Bool)] = [
             (0.15, false),
             (0.45, false),
@@ -41,7 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             (4.00, true)
         ]
         for attempt in attempts {
-            DispatchQueue.main.asyncAfter(deadline: .now() + attempt.delay) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + attempt.delay) { [weak self] in
+                guard let self, self.menuArrangementGeneration == generation else { return }
                 _ = Self.arrangeInstalledMainMenu(allowsEditFallback: attempt.allowsEditFallback)
             }
         }
@@ -70,7 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             mainMenu.removeItem(item)
         }
         for (offset, item) in customItems.enumerated() {
-            mainMenu.insertItem(item, at: 1 + offset)
+            insertMenuItemSafely(item, in: mainMenu, at: 1 + offset)
         }
 
         for (offset, title) in ["履歴", "設定", "編集", "表示"].enumerated() {
@@ -79,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             guard let item = mainMenu.item(at: currentIndex) else { continue }
             mainMenu.removeItem(at: currentIndex)
-            mainMenu.insertItem(item, at: offset + 1)
+            insertMenuItemSafely(item, in: mainMenu, at: offset + 1)
         }
 
         moveFirstMenuItem(in: mainMenu, matching: ["ウィンドウ", "ウインドウ"], to: 5)
@@ -92,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ].contains(titles)
     }
 
-    private static func moveFirstMenuItem(
+    static func moveFirstMenuItem(
         in mainMenu: NSMenu,
         matching titles: [String],
         to index: Int
@@ -102,8 +107,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let item = mainMenu.item(at: currentIndex) else { return }
 
         mainMenu.removeItem(at: currentIndex)
-        mainMenu.insertItem(item, at: index)
+        // SwiftUI can expose a partially-installed menu while scene commands are still being
+        // attached. AppKit raises an Objective-C exception when the insertion index is outside
+        // the current range, so append when the requested position is not available yet. A later
+        // retry will place the item at its exact target once the remaining menus exist.
+        insertMenuItemSafely(item, in: mainMenu, at: index)
+    }
 
+    private static func insertMenuItemSafely(_ item: NSMenuItem, in mainMenu: NSMenu, at index: Int) {
+        let safeIndex = max(index, 0)
+        if safeIndex >= mainMenu.numberOfItems {
+            mainMenu.addItem(item)
+        } else {
+            mainMenu.insertItem(item, at: safeIndex)
+        }
     }
 
     private static func makeStandardEditMenu() -> NSMenu {
