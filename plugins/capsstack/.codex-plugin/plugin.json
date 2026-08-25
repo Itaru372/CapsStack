@@ -1,0 +1,23 @@
+{
+  "name": "capsstack",
+  "version": "0.1.0",
+  "description": "Connect AI agents to CapsStack return briefs and pre-away context.",
+  "author": {
+    "name": "CapsStack Contributors"
+  },
+  "keywords": ["capsstack", "agent-context", "return-brief", "macos"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "CapsStack",
+    "shortDescription": "Save work context and read CapsStack return briefs.",
+    "longDescription": "CapsStack connects AI agents to the local macOS app through a privacy-preserving CLI. Save concise context before stepping away, check integration health, and review completed or pending return briefs without exposing raw session logs.",
+    "developerName": "CapsStack Contributors",
+    "category": "Productivity",
+    "capabilities": ["CLI", "Read", "Write"],
+    "defaultPrompt": [
+      "Save my current work context before I step away.",
+      "Show my latest CapsStack return brief.",
+      "Check whether CapsStack is ready for agent handoff."
+    ]
+  }
+}

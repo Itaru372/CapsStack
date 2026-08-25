@@ -124,14 +124,17 @@ final class HistoryStore: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        let entries = try loadUnlocked()
         try writeHistory([])
-        for entry in entries {
-            guard let pendingID = entry.pendingArtifactID else { continue }
-            let url = pendingURL(for: pendingID)
-            if fileManager.fileExists(atPath: url.path) {
-                try fileManager.removeItem(at: url)
-            }
+        guard fileManager.fileExists(atPath: pendingDirectoryURL.path) else { return }
+        // Raw artifacts can outlive their history row after an interrupted write or an older app
+        // version. The explicit "delete all" action must remove every artifact on disk, not only
+        // files still referenced by the current history index.
+        for url in try fileManager.contentsOfDirectory(
+            at: pendingDirectoryURL,
+            includingPropertiesForKeys: nil,
+            options: []
+        ) {
+            try fileManager.removeItem(at: url)
         }
     }
 

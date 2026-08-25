@@ -173,21 +173,25 @@ final class JSONLSessionCollector: SessionCollector {
     }
 
     private func read(file: URL) throws -> ReadFile {
-        let values = try file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        let fileSize = values.fileSize ?? 0
+        let values = try file.resourceValues(forKeys: [.contentModificationDateKey])
         let modificationDate = values.contentModificationDate ?? Date()
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
 
-        if fileSize > maxFileBytes {
-            try handle.seek(toOffset: UInt64(fileSize - maxFileBytes))
-            let data = try handle.readToEnd() ?? Data()
-            return ReadFile(data: data, modificationDate: modificationDate, wasTruncated: true)
-        }
+        // Re-read the live size from the open descriptor and request at most one byte beyond the
+        // limit. A log can grow after resource values are fetched; `readToEnd()` would otherwise
+        // allocate the newly appended tail without a bound.
+        let liveSize = try handle.seekToEnd()
+        let startOffset = liveSize > UInt64(maxFileBytes)
+            ? liveSize - UInt64(maxFileBytes)
+            : 0
+        try handle.seek(toOffset: startOffset)
+        let data = try handle.read(upToCount: maxFileBytes + 1) ?? Data()
+        let wasTruncated = startOffset > 0 || data.count > maxFileBytes
         return ReadFile(
-            data: try handle.readToEnd() ?? Data(),
+            data: Data(data.prefix(maxFileBytes)),
             modificationDate: modificationDate,
-            wasTruncated: false
+            wasTruncated: wasTruncated
         )
     }
 
@@ -207,10 +211,21 @@ final class JSONLSessionCollector: SessionCollector {
         return ParsedRecord(
             timestamp: timestamp,
             kind: kind,
-            content: String(content.prefix(32_768)),
+            content: Self.truncatedUTF8(content, limit: 32_768),
             sessionID: sessionID,
             workingDirectory: workingDirectory
         )
+    }
+
+    private static func truncatedUTF8(_ value: String, limit: Int) -> String {
+        let data = Data(value.utf8)
+        guard data.count > limit else { return value }
+        var end = limit
+        while end > 0 {
+            if let result = String(data: data.prefix(end), encoding: .utf8) { return result }
+            end -= 1
+        }
+        return ""
     }
 
     private func stringValue(_ value: Any?) -> String? {

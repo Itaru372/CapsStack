@@ -1,6 +1,9 @@
 import AppKit
 import SwiftUI
 
+/// The contents deliberately use only native menu controls. Keeping this view free of
+/// custom backgrounds, hover handling, and fixed sizing lets `MenuBarExtraStyle.menu`
+/// render a standard, lightweight macOS menu.
 struct MenuBarView: View {
     @ObservedObject var controller: AppController
     @Environment(\.openWindow) private var openWindow
@@ -11,155 +14,89 @@ struct MenuBarView: View {
         controller.phase == .away ? "今すぐ復帰" : "退席を開始"
     }
 
+    private var quickMemoTitle: String {
+        QuickMemoPreferences(text: quickMemoText).trimmedText == nil
+            ? "退席前メモ..."
+            : "退席前メモを編集..."
+    }
+
     private var notice: String? {
         if !controller.isCapsStackEnabled {
-            return "設定でCapsStackを有効にすると再開します"
+            return "設定でCapsStackを有効にしてください"
         }
         if controller.phase == .failed {
-            return controller.lastError ?? "履歴から再要約できます"
+            return "履歴から詳細を確認できます"
         }
         return nil
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            statusBarHeader
+        Button(action: {}) {
+            Label(controller.stateTitle, systemImage: controller.phase.menuSystemImage)
+        }
+        .disabled(true)
+        .accessibilityLabel("CapsStackの状態: \(controller.stateTitle)")
 
-            if let notice {
-                Text(notice)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 6)
-            }
+        if let notice {
+            Button(notice, action: {})
+                .disabled(true)
+        }
 
-            MenuBarDivider()
+        Divider()
 
-            MenuBarRow(title: statusActionTitle) {
-                if controller.phase == .away {
-                    controller.endAwayManually()
-                } else if controller.phase != .summarizing {
-                    controller.beginAwayManually()
-                }
-            }
-            .disabled(
-                !controller.isCapsStackEnabled
-                    || controller.phase == .summarizing
-                    || controller.phase == .disabled
-            )
-
-            quickMemoField
-
-            MenuBarDivider()
-
-            MenuBarRow(title: "履歴を開く", shortcut: "⌘O") {
-                NSApp.activate(ignoringOtherApps: true)
-                openWindow(id: "history")
-            }
-
-            MenuBarRow(title: "設定...", shortcut: "⌘,") {
-                openSettings()
-            }
-
-            MenuBarDivider()
-
-            MenuBarRow(title: "CapsStackを終了", shortcut: "⌘Q") {
-                NSApplication.shared.terminate(nil)
+        Button(statusActionTitle) {
+            if controller.phase == .away {
+                controller.endAwayManually()
+            } else if controller.phase != .summarizing {
+                controller.beginAwayManually()
             }
         }
-        .padding(.vertical, 5)
-        .frame(width: 300)
-        .background(BrandPalette.BriefTheme.panel)
-        .preferredColorScheme(.dark)
-    }
+        .disabled(
+            !controller.isCapsStackEnabled
+                || controller.phase == .summarizing
+                || controller.phase == .disabled
+        )
 
-    private var statusBarHeader: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(controller.phase.brandColor)
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
-
-            Text(controller.stateTitle)
-                .foregroundStyle(.primary)
-
-            Spacer(minLength: 12)
-
-            if controller.phase == .away, let start = controller.awayStartedAt {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(DurationFormatter.string(from: context.date.timeIntervalSince(start)))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-            }
+        Button(quickMemoTitle) {
+            activateAndOpenWindow(id: "quick-memo")
         }
-        .font(.system(size: 13))
-        .padding(.horizontal, 14)
-        .frame(height: 26)
-        .accessibilityElement(children: .combine)
+        .disabled(!controller.isCapsStackEnabled || controller.phase == .summarizing)
+
+        Divider()
+
+        Button("履歴を開く") {
+            activateAndOpenWindow(id: "history")
+        }
+        .keyboardShortcut("o", modifiers: [.command])
+
+        Button("設定...") {
+            NSApp.activate(ignoringOtherApps: true)
+            openSettings()
+        }
+        .keyboardShortcut(",", modifiers: [.command])
+
+        Divider()
+
+        Button("CapsStackを終了") {
+            NSApplication.shared.terminate(nil)
+        }
+        .keyboardShortcut("q", modifiers: [.command])
     }
 
-    private var quickMemoField: some View {
-        TextField("退席前メモ...", text: $quickMemoText)
-            .textFieldStyle(.plain)
-            .font(.system(size: 13))
-            .padding(.horizontal, 14)
-            .frame(height: 24)
-            .disabled(
-                !controller.isCapsStackEnabled || controller.phase == .summarizing
-            )
+    private func activateAndOpenWindow(id: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        openWindow(id: id)
     }
 }
 
-private struct MenuBarDivider: View {
-    var body: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.12))
-            .frame(height: 1)
-            .padding(.vertical, 3)
-    }
-}
-
-private struct MenuBarRow: View {
-    let title: String
-    var shortcut: String?
-    let action: () -> Void
-
-    @State private var isHovered = false
-    @Environment(\.isEnabled) private var isEnabled
-
-    var body: some View {
-        let isHighlighted = isHovered && isEnabled
-
-        Button(action: action) {
-            HStack(spacing: 0) {
-                Text(title)
-
-                Spacer(minLength: 16)
-
-                if let shortcut {
-                    Text(shortcut)
-                        .monospacedDigit()
-                        .foregroundStyle(
-                            isHighlighted ? Color.white.opacity(0.8) : Color.secondary
-                        )
-                }
-            }
-            .font(.system(size: 13))
-            .foregroundStyle(isHighlighted ? Color.white : Color.primary)
-            .padding(.horizontal, 14)
-            .frame(height: 24)
-            .contentShape(Rectangle())
-            .background {
-                if isHighlighted {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.accentColor.opacity(0.9))
-                }
-            }
+private extension AppPhase {
+    var menuSystemImage: String {
+        switch self {
+        case .idle: "circle"
+        case .away: "circle.fill"
+        case .summarizing: "ellipsis.circle"
+        case .failed: "exclamationmark.triangle"
+        case .disabled: "pause.circle"
         }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .opacity(isEnabled ? 1 : 0.45)
     }
 }

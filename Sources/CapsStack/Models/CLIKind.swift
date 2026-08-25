@@ -26,13 +26,11 @@ enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// OpenCode 2 is currently distributed as a separate `opencode2` binary.
-    /// Keep it as a fallback while the stable `opencode` command remains preferred.
+    /// OpenCode 2 uses a different client/server API and does not expose the v1
+    /// `session list` / `export` boundary used by this app. Detect only the supported stable CLI
+    /// until a dedicated v2 collector/provider is implemented.
     var executableNames: [String] {
-        switch self {
-        case .opencode: ["opencode", "opencode2"]
-        default: [executableName]
-        }
+        [executableName]
     }
 
     var systemImage: String {

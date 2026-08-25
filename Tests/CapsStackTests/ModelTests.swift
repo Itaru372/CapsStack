@@ -2,6 +2,17 @@ import XCTest
 @testable import CapsStack
 
 final class ModelTests: XCTestCase {
+    func testHistoryExportFilenameIsPortableAndDeterministic() throws {
+        let utc = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let fileName = HistoryExportNaming.fileName(for: date, timeZone: utc)
+
+        XCTAssertEqual(fileName, "CapsStack-2023-11-14_22-13.md")
+        XCTAssertFalse(fileName.contains("/"))
+        XCTAssertFalse(fileName.contains(":"))
+    }
+
     func testBrandAssetsArePackaged() {
         XCTAssertNotNil(BrandAssets.nsImage(named: "CapsStackAppIcon"))
         XCTAssertNotNil(BrandAssets.nsImage(named: "CapsStackMenuBar"))
@@ -145,6 +156,14 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(loaded.trimmedText, "ChatGPTデスクトップで資料を整理中")
     }
 
+    func testQuickMemoPreferencesCapsUTF8SizeWithoutBreakingCharacters() {
+        let memo = QuickMemoPreferences(text: String(repeating: "進捗", count: 20_000))
+
+        XCTAssertLessThanOrEqual(memo.text.utf8.count, QuickMemoPreferences.maximumUTF8Bytes)
+        XCTAssertNotNil(memo.text.data(using: .utf8))
+        XCTAssertFalse(memo.text.isEmpty)
+    }
+
     func testCollectionBatchDecodesLegacyJSONWithoutQuickMemo() throws {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let batch = CollectionBatch(
@@ -175,7 +194,7 @@ final class ModelTests: XCTestCase {
     }
 }
 
-private final class EmptyNotificationService: NotificationServicing {
+private final class EmptyNotificationService: NotificationServicing, @unchecked Sendable {
     func requestAuthorization() async -> Bool { false }
     func notify(outcome: SummaryOutcome, interval: AwayInterval, sessionCount: Int) async {}
     func notifyFailure(message: String, interval: AwayInterval?) async {}

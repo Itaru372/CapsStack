@@ -1,6 +1,6 @@
 # CapsStack
 
-Caps LockをONにしている間を「退席」とみなし、Codex CLI / Claude Code CLI / OpenCode / Piのセッション記録を収集して、選択したCLIとモデルで復帰時に要約するmacOSアプリです。ネイティブメニューバー、履歴ウィンドウ、メニューバーポップオーバー、設定ウィンドウを備えます。
+Caps LockをONにしている間を「退席」とみなし、Codex CLI / Claude Code CLI / OpenCode / Piのセッション記録を収集して、選択したCLIとモデルで復帰時に要約するmacOSアプリです。ネイティブメニューバー、履歴ウィンドウ、退席前メモウィンドウ、設定ウィンドウを備えます。
 
 ## 特徴
 
@@ -26,7 +26,7 @@ Caps LockをONにしている間を「退席」とみなし、Codex CLI / Claude
 | CLI | セッション収集 | 要約起動 | モデル / Reasoning |
 | --- | --- | --- | --- |
 | Codex | `~/.codex/sessions` のJSONL | `codex exec --ephemeral --sandbox read-only --output-schema` | `--model` / `--config model_reasoning_effort=...` |
-| Claude Code | `~/.claude/projects` のJSONL | `claude -p`（対応フラグだけ `--help` で有効化） | `--model` / `--effort` |
+| Claude Code | `~/.claude/projects` のJSONL | `claude -p`（安全境界は常時、任意機能だけ `--help` で有効化） | `--model` / `--effort` |
 | OpenCode | `opencode session list --format json` + `opencode export` | `opencode run --format json --variant` | `--model provider/model` / model固有のvariant |
 | Pi | `~/.pi/agent/sessions` のJSONL | `pi --print --no-session --no-tools` | `--model` / `--thinking` |
 
@@ -36,7 +36,7 @@ OpenCodeは現行版がDB-backed storageを使うため、保存ファイルを�
 
 ## GUI版エージェントと退席前メモ
 
-ChatGPTデスクトップアプリやCursorなど、JSONLログを読めないGUIエージェントの作業はCapsStackが直接収集できません。その代わり、メニューバーの「退席前メモ」に入力しておくと、復帰時の要約資料に含まれます。
+ChatGPTデスクトップアプリやCursorなど、JSONLログを読めないGUIエージェントの作業はCapsStackが直接収集できません。その代わり、メニューバーの「退席前メモ...」から専用ウィンドウへ入力しておくと、復帰時の要約資料に含まれます。
 
 CLIセッションが一件も検出されず、退席前メモだけがある場合は、メモ単体を要約対象として扱います。これにより、GUI専用ワークフローや短い外出でも履歴が空になりません。
 
@@ -50,6 +50,47 @@ swift test
 ```
 
 CodexアプリのRunボタンも `./script/build_and_run.sh` を呼び出します。
+
+## CapsStack CLI
+
+CLIは履歴の参照、退席前メモの受け渡し、対応エージェントCLIの検出を行います。履歴やメモはmacOSアプリと同じローカル保存先を使い、生ログにはアクセスしません。
+
+開発時は、macOSの大文字小文字非区別ファイルシステムでアプリ名と衝突しないSwiftPM product名を使います。
+
+```sh
+swift run capsstack-cli --help
+swift run capsstack-cli status --json
+swift run capsstack-cli history latest --markdown
+printf '%s' '次は回帰テストを実行' | swift run capsstack-cli memo set --stdin --json
+```
+
+`.app` / `.pkg` には `CapsStack.app/Contents/Helpers/capsstack` として同梱されます。`Contents/MacOS/CapsStack` と同じディレクトリに小文字名を置くと、macOS標準の大文字小文字非区別ファイルシステムでアプリ本体と衝突するためです。
+
+```sh
+/Applications/CapsStack.app/Contents/Helpers/capsstack status
+```
+
+主なコマンド：
+
+| コマンド | 用途 |
+| --- | --- |
+| `status [--json]` | 履歴、メモ、対応CLIの状態を確認 |
+| `history list [--limit N] [--json]` | 新しい順に履歴を一覧表示 |
+| `history latest [--json\|--markdown]` | 最新の復帰要約を表示 |
+| `history show <UUID> [--json\|--markdown]` | 指定した履歴を表示 |
+| `memo get [--json]` | 現在の退席前メモを表示 |
+| `memo set <text> [--json]` | 退席前メモを保存 |
+| `memo set --stdin [--json]` | stdinから退席前メモを安全に保存 |
+| `memo clear [--json]` | 退席前メモを消去 |
+
+## AIエージェント用プラグイン
+
+検証済みのCodexプラグインは `plugins/capsstack` にあります。プラグインには次のSkillsを同梱しています。
+
+- `capsstack-context`: 退席前の作業状況を短いメモとして保存し、連携状態を確認
+- `capsstack-history`: 最新または指定した復帰要約をJSON / Markdownで安全に取得
+
+Skillsは `CAPSSTACK_CLI`、リポジトリ内の開発ビルド、`PATH`、`/Applications/CapsStack.app/Contents/Helpers/capsstack` の順でCLIを解決します。プラグインの配布時は `plugins/capsstack` ディレクトリをCodex marketplaceのplugin sourceとして利用できます。
 
 ## GitHubへ初回push
 

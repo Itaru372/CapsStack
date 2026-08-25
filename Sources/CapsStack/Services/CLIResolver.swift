@@ -45,6 +45,10 @@ struct CLIResolver: CLIResolving, @unchecked Sendable {
             "/bin",
             homeDirectory.appendingPathComponent(".local/bin").path,
             homeDirectory.appendingPathComponent(".npm-global/bin").path,
+            homeDirectory.appendingPathComponent(".bun/bin").path,
+            homeDirectory.appendingPathComponent(".pnpm").path,
+            homeDirectory.appendingPathComponent(".yarn/bin").path,
+            homeDirectory.appendingPathComponent("Library/pnpm").path,
             homeDirectory.appendingPathComponent(".volta/bin").path,
             homeDirectory.appendingPathComponent(".nvm/current/bin").path
         ]
@@ -61,7 +65,10 @@ struct CLIResolver: CLIResolving, @unchecked Sendable {
     func status(for kind: CLIKind, override: String? = nil) -> CLIStatus {
         let path = executableURL(for: kind, override: override)
         let logURL = logDirectory(for: kind)
-        let canRead = fileManager.isReadableFile(atPath: logURL.path)
+        var isDirectory = ObjCBool(false)
+        let canRead = fileManager.fileExists(atPath: logURL.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+            && fileManager.isReadableFile(atPath: logURL.path)
         return CLIStatus(
             kind: kind,
             executablePath: path?.path,
@@ -74,24 +81,35 @@ struct CLIResolver: CLIResolving, @unchecked Sendable {
     func logDirectory(for kind: CLIKind) -> URL {
         switch kind {
         case .codex:
-            return homeDirectory
-                .appendingPathComponent(".codex", isDirectory: true)
+            return (environmentDirectory("CODEX_HOME")
+                ?? homeDirectory.appendingPathComponent(".codex", isDirectory: true))
                 .appendingPathComponent("sessions", isDirectory: true)
         case .claudeCode:
-            return homeDirectory
-                .appendingPathComponent(".claude", isDirectory: true)
+            return (environmentDirectory("CLAUDE_CONFIG_DIR")
+                ?? homeDirectory.appendingPathComponent(".claude", isDirectory: true))
                 .appendingPathComponent("projects", isDirectory: true)
         case .opencode:
-            return homeDirectory
-                .appendingPathComponent(".local", isDirectory: true)
-                .appendingPathComponent("share", isDirectory: true)
+            return (environmentDirectory("XDG_DATA_HOME")
+                ?? homeDirectory
+                    .appendingPathComponent(".local", isDirectory: true)
+                    .appendingPathComponent("share", isDirectory: true))
                 .appendingPathComponent("opencode", isDirectory: true)
         case .pi:
-            return homeDirectory
-                .appendingPathComponent(".pi", isDirectory: true)
-                .appendingPathComponent("agent", isDirectory: true)
-                .appendingPathComponent("sessions", isDirectory: true)
+            return environmentDirectory("PI_CODING_AGENT_SESSION_DIR")
+                ?? homeDirectory
+                    .appendingPathComponent(".pi", isDirectory: true)
+                    .appendingPathComponent("agent", isDirectory: true)
+                    .appendingPathComponent("sessions", isDirectory: true)
         }
+    }
+
+    private func environmentDirectory(_ key: String) -> URL? {
+        guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else { return nil }
+        return URL(
+            fileURLWithPath: (value as NSString).expandingTildeInPath,
+            isDirectory: true
+        ).standardizedFileURL
     }
 
     private func findOnPath(_ name: String) -> URL? {

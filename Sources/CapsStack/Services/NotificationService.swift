@@ -1,7 +1,7 @@
 import Foundation
 import UserNotifications
 
-protocol NotificationServicing: AnyObject {
+protocol NotificationServicing: AnyObject, Sendable {
     func requestAuthorization() async -> Bool
     func notify(outcome: SummaryOutcome, interval: AwayInterval, sessionCount: Int) async
     func notifyFailure(message: String, interval: AwayInterval?) async

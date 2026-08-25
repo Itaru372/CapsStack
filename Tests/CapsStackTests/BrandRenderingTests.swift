@@ -5,18 +5,6 @@ import XCTest
 
 @MainActor
 final class BrandRenderingTests: XCTestCase {
-    func testMenuReorderingClampsPartiallyInstalledMenu() {
-        let menu = NSMenu(title: "Main")
-        menu.addItem(NSMenuItem(title: "CapsStack", action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "ヘルプ", action: nil, keyEquivalent: ""))
-
-        // During SwiftUI startup the menu can contain only a subset of the expected items. The
-        // arranger must append safely instead of asking AppKit to insert past numberOfItems.
-        AppDelegate.moveFirstMenuItem(in: menu, matching: ["ヘルプ"], to: 6)
-
-        XCTAssertEqual(menu.items.map(\.title), ["CapsStack", "ヘルプ"])
-    }
-
     func testBrandedSurfacesRender() throws {
         let suiteName = "CapsStackBrandRenderingTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -34,11 +22,10 @@ final class BrandRenderingTests: XCTestCase {
         )
         controller.reloadHistory()
 
-        let menuBar = try render(
-            MenuBarView(controller: controller)
-                .frame(width: 316, height: 340, alignment: .top)
-                .background(BrandPalette.BriefTheme.panel),
-            size: CGSize(width: 316, height: 340)
+        let quickMemo = try render(
+            QuickMemoView()
+                .frame(width: 440, height: 230),
+            size: CGSize(width: 440, height: 230)
         )
         let settings = try render(
             SettingsView(controller: controller)
@@ -53,7 +40,7 @@ final class BrandRenderingTests: XCTestCase {
             size: CGSize(width: 1120, height: 740)
         )
 
-        XCTAssertEqual(menuBar.size, CGSize(width: 316, height: 340))
+        XCTAssertEqual(quickMemo.size, CGSize(width: 440, height: 230))
         XCTAssertEqual(settings.size, CGSize(width: 980, height: 680))
         XCTAssertEqual(history.size, CGSize(width: 1120, height: 740))
 
@@ -63,7 +50,7 @@ final class BrandRenderingTests: XCTestCase {
                 at: outputDirectory,
                 withIntermediateDirectories: true
             )
-            try writePNG(menuBar, to: outputDirectory.appendingPathComponent("menu-bar.png"))
+            try writePNG(quickMemo, to: outputDirectory.appendingPathComponent("quick-memo.png"))
             try writePNG(settings, to: outputDirectory.appendingPathComponent("settings.png"))
             try writePNG(history, to: outputDirectory.appendingPathComponent("history.png"))
         }
@@ -135,7 +122,7 @@ final class BrandRenderingTests: XCTestCase {
     }
 }
 
-private final class SilentNotificationService: NotificationServicing {
+private final class SilentNotificationService: NotificationServicing, @unchecked Sendable {
     func requestAuthorization() async -> Bool { false }
 
     func notify(

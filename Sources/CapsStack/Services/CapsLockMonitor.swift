@@ -1,5 +1,6 @@
-import ApplicationServices
-import CoreGraphics
+@preconcurrency import ApplicationServices
+@preconcurrency import CoreFoundation
+@preconcurrency import CoreGraphics
 import Foundation
 
 /// Polls the system Caps Lock flag without installing a global key event tap. This avoids
@@ -13,6 +14,8 @@ final class CapsLockMonitor: @unchecked Sendable {
     private let lock = NSLock()
     private let pollingInterval: TimeInterval
     private let pollingQueue: DispatchQueue
+    private let systemStateReader: @Sendable () -> Bool
+    private let systemStateSetter: @Sendable (Bool) -> Void
     private var timer: DispatchSourceTimer?
     private var state: Bool
     private var handler: ChangeHandler?
@@ -20,16 +23,34 @@ final class CapsLockMonitor: @unchecked Sendable {
     private var syntheticState: Bool = false
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    private var eventTapQueue: DispatchQueue?
+    private var eventTapRunLoop: CFRunLoop?
 
-    private(set) var isRunning = false
-    private(set) var suppressionError: String?
-    private(set) var isSuppressionActive: Bool = false
+    private var running = false
+    private var storedSuppressionError: String?
+    private var suppressionActive = false
+
+    var isRunning: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return running
+    }
+
+    var suppressionError: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedSuppressionError
+    }
+
+    var isSuppressionActive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return suppressionActive
+    }
 
     var isCapsLockOn: Bool {
         lock.lock()
         defer { lock.unlock() }
-        if suppressOriginal && isSuppressionActive {
+        if suppressOriginal && suppressionActive {
             return syntheticState
         }
         return state
@@ -39,7 +60,7 @@ final class CapsLockMonitor: @unchecked Sendable {
     var isSuppressingOriginal: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return suppressOriginal && isSuppressionActive
+        return suppressOriginal && suppressionActive
     }
 
     var onChange: ChangeHandler? {
@@ -55,13 +76,20 @@ final class CapsLockMonitor: @unchecked Sendable {
         }
     }
 
-    init(pollingInterval: TimeInterval = 0.25, queue: DispatchQueue? = nil) {
+    init(
+        pollingInterval: TimeInterval = 0.25,
+        queue: DispatchQueue? = nil,
+        systemStateReader: @escaping @Sendable () -> Bool = { CapsLockMonitor.readSystemState() },
+        systemStateSetter: @escaping @Sendable (Bool) -> Void = { CapsLockMonitor.setSystemCapsLock(on: $0) }
+    ) {
         self.pollingInterval = max(0.05, pollingInterval)
         self.pollingQueue = queue ?? DispatchQueue(
             label: "com.capsstack.caps-lock-monitor",
             qos: .utility
         )
-        self.state = Self.readSystemState()
+        self.systemStateReader = systemStateReader
+        self.systemStateSetter = systemStateSetter
+        self.state = systemStateReader()
     }
 
     /// Enable or disable swallowing the original Caps Lock typing behaviour.
@@ -73,12 +101,14 @@ final class CapsLockMonitor: @unchecked Sendable {
         suppressOriginal = enabled
         if !enabled {
             syntheticState = false
-            // Ensure system Caps Lock is off when leaving suppression mode
-            if Self.readSystemState() {
-                Self.setSystemCapsLock(on: false)
-            }
         }
         lock.unlock()
+
+        // Restore a deterministic OFF state only when leaving active suppression. A normal app
+        // launch with suppression already disabled must never alter the user's Caps Lock state.
+        if !enabled, wasSuppressing, systemStateReader() {
+            systemStateSetter(false)
+        }
 
         if enabled == wasSuppressing {
             // Already in desired state; ensure tap matches
@@ -111,9 +141,10 @@ final class CapsLockMonitor: @unchecked Sendable {
     func start() -> Bool {
         lock.lock()
         guard timer == nil else {
+            let shouldInstallTap = suppressOriginal
             lock.unlock()
             // Ensure event tap is consistent with suppression flag
-            if suppressOriginal {
+            if shouldInstallTap {
                 _ = installEventTap()
             }
             return true
@@ -128,7 +159,7 @@ final class CapsLockMonitor: @unchecked Sendable {
             self?.poll()
         }
         self.timer = timer
-        isRunning = true
+        running = true
         let shouldInstallTap = suppressOriginal
         lock.unlock()
         timer.resume()
@@ -142,12 +173,12 @@ final class CapsLockMonitor: @unchecked Sendable {
         uninstallEventTap()
         lock.lock()
         guard let timer else {
-            isRunning = false
+            running = false
             lock.unlock()
             return
         }
         self.timer = nil
-        isRunning = false
+        running = false
         lock.unlock()
         timer.setEventHandler {}
         timer.cancel()
@@ -162,11 +193,11 @@ final class CapsLockMonitor: @unchecked Sendable {
     private func poll() {
         // When suppression is active we don't rely on system flag; syntheticState is driven by event tap.
         lock.lock()
-        let suppressing = suppressOriginal && isSuppressionActive
+        let suppressing = suppressOriginal && suppressionActive
         lock.unlock()
         if suppressing { return }
 
-        let current = Self.readSystemState()
+        let current = systemStateReader()
         lock.lock()
         guard current != state else {
             lock.unlock()
@@ -202,14 +233,17 @@ final class CapsLockMonitor: @unchecked Sendable {
 
     private func installEventTap() -> Bool {
         // Already installed
-        if eventTap != nil { return true }
+        lock.lock()
+        let alreadyInstalled = eventTap != nil
+        lock.unlock()
+        if alreadyInstalled { return true }
 
         // Check accessibility trust
         let trusted = AXIsProcessTrusted()
         if !trusted {
             lock.lock()
-            suppressionError = "アクセシビリティの許可が必要です。システム設定 > プライバシーとセキュリティ > アクセシビリティ で CapsStack を許可してください。"
-            isSuppressionActive = false
+            storedSuppressionError = "アクセシビリティの許可が必要です。システム設定 > プライバシーとセキュリティ > アクセシビリティ で CapsStack を許可してください。"
+            suppressionActive = false
             lock.unlock()
             // Prompt system dialog (will show if we try to create tap, but also explicit)
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -231,68 +265,89 @@ final class CapsLockMonitor: @unchecked Sendable {
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
             lock.lock()
-            suppressionError = "Caps Lock の監視を開始できませんでした。アクセシビリティ権限を確認してください。"
-            isSuppressionActive = false
+            storedSuppressionError = "Caps Lock の監視を開始できませんでした。アクセシビリティ権限を確認してください。"
+            suppressionActive = false
             lock.unlock()
             return false
         }
 
         let queue = DispatchQueue(label: "com.capsstack.caps-lock-tap", qos: .userInteractive)
-        eventTapQueue = queue
-        eventTap = tap
         if let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) {
-            runLoopSource = source
-            queue.async {
-                CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-                CFRunLoopRun()
-            }
-            CGEvent.tapEnable(tap: tap, enable: true)
             lock.lock()
-            isSuppressionActive = true
-            suppressionError = nil
-            // Sync synthetic state to current system state on entry, then ensure system Caps stays off
+            eventTap = tap
+            runLoopSource = source
+            suppressionActive = true
+            storedSuppressionError = nil
+            // Sync synthetic state to current system state on entry.
             syntheticState = state
             lock.unlock()
+            queue.async { [weak self] in
+                guard let runLoop = CFRunLoopGetCurrent() else { return }
+                self?.storeEventTapRunLoop(runLoop)
+                CFRunLoopAddSource(runLoop, source, .commonModes)
+                CFRunLoopRun()
+                self?.clearEventTapRunLoop(ifMatching: runLoop)
+            }
+            CGEvent.tapEnable(tap: tap, enable: true)
             // Make sure system CapsLock LED is off while suppressed
-            if Self.readSystemState() {
-                Self.setSystemCapsLock(on: false)
+            if systemStateReader() {
+                systemStateSetter(false)
             }
             return true
         } else {
             CFMachPortInvalidate(tap)
-            eventTap = nil
             lock.lock()
-            suppressionError = "イベントタップの登録に失敗しました。"
-            isSuppressionActive = false
+            eventTap = nil
+            storedSuppressionError = "イベントタップの登録に失敗しました。"
+            suppressionActive = false
             lock.unlock()
             return false
         }
     }
 
     private func uninstallEventTap() {
-        guard let tap = eventTap else { return }
         lock.lock()
-        isSuppressionActive = false
+        guard let tap = eventTap else {
+            lock.unlock()
+            return
+        }
+        let source = runLoopSource
+        let runLoop = eventTapRunLoop
+        suppressionActive = false
+        eventTap = nil
+        runLoopSource = nil
+        eventTapRunLoop = nil
         lock.unlock()
         CGEvent.tapEnable(tap: tap, enable: false)
         CFMachPortInvalidate(tap)
-        if let source = runLoopSource {
-            // RunLoop source removal must happen on the tap queue's run loop; stopping the loop will clean it up.
-            // For simplicity, just invalidate and let queue's run loop exit on next iteration.
+        if let source {
             CFRunLoopSourceInvalidate(source)
         }
-        eventTap = nil
-        runLoopSource = nil
-        // Stop the dedicated run loop if running
-        eventTapQueue?.async {
-            CFRunLoopStop(CFRunLoopGetCurrent())
+        if let runLoop {
+            CFRunLoopStop(runLoop)
         }
-        eventTapQueue = nil
+    }
+
+    private func storeEventTapRunLoop(_ runLoop: CFRunLoop) {
+        lock.lock()
+        eventTapRunLoop = runLoop
+        lock.unlock()
+    }
+
+    private func clearEventTapRunLoop(ifMatching runLoop: CFRunLoop) {
+        lock.lock()
+        if eventTapRunLoop === runLoop {
+            eventTapRunLoop = nil
+        }
+        lock.unlock()
     }
 
     private func handleTap(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap = eventTap {
+            lock.lock()
+            let tap = eventTap
+            lock.unlock()
+            if let tap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
             return Unmanaged.passUnretained(event)
@@ -323,8 +378,9 @@ final class CapsLockMonitor: @unchecked Sendable {
             lock.unlock()
 
             if shouldToggle, let callback {
+                let callbackState = newState
                 DispatchQueue.main.async {
-                    callback(newState)
+                    callback(callbackState)
                 }
             }
             // Swallow so original Caps Lock typing is not triggered

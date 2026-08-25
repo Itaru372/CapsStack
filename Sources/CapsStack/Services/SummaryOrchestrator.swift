@@ -5,15 +5,18 @@ import Foundation
 struct SummaryOrchestrator {
     private let providers: [CLIKind: SummaryProvider]
     private let maxInputBytes: Int
+    private let maxChunkCount: Int
 
     init(
         resolver: CLIResolving = CLIResolver(),
         runner: ProcessRunning = ProcessRunner(),
         timeout: TimeInterval = 120,
         maxInputBytes: Int = 180 * 1024,
+        maxChunkCount: Int = 8,
         providers: [CLIKind: SummaryProvider]? = nil
     ) {
         self.maxInputBytes = max(16 * 1024, maxInputBytes)
+        self.maxChunkCount = min(16, max(1, maxChunkCount))
         self.providers = providers ?? [
             .codex: CodexSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
             .claudeCode: ClaudeCodeSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
@@ -37,6 +40,7 @@ struct SummaryOrchestrator {
             )
             return SummaryOutcome(document: document, provider: preferences.primary, fallbackUsed: false)
         } catch let primaryError {
+            try Task.checkCancellation()
             guard preferences.automaticFallback else {
                 throw primaryError
             }
@@ -54,6 +58,7 @@ struct SummaryOrchestrator {
                     )
                     return SummaryOutcome(document: document, provider: fallbackKind, fallbackUsed: true)
                 } catch {
+                    try Task.checkCancellation()
                     lastError = error
                 }
             }
@@ -93,7 +98,10 @@ struct SummaryOrchestrator {
             throw SummaryProviderError.noProviderAvailable
         }
 
-        let chunks = split(batch: batch)
+        let allChunks = split(batch: batch)
+        let chunks = boundedChunks(allChunks)
+        let omittedChunkCount = allChunks.count - chunks.count
+        let requiresIntegration = chunks.count != 1 || chunks[0] != batch || omittedChunkCount > 0
         var documents: [SummaryDocument] = []
         documents.reserveCapacity(chunks.count)
         for chunk in chunks {
@@ -104,34 +112,65 @@ struct SummaryOrchestrator {
                 reasoningOverride: reasoningOverride
             ))
         }
-        guard documents.count > 1 else { return documents[0] }
+        guard requiresIntegration else { return documents[0] }
 
         // The raw records have already been summarized per session/chunk. Feed those compact
         // summaries back to the same provider for a chronological final integration pass.
+        let perDocumentLimit = max(32, (maxInputBytes / 2) / max(1, documents.count))
         let summaryArtifacts = documents.enumerated().map { index, document in
-            CollectedSessionArtifact(
+            let encodedDocument = encode(document)
+            let boundedDocument = truncatedUTF8(encodedDocument, limit: perDocumentLimit)
+            return CollectedSessionArtifact(
                 id: "summary-chunk-\(index + 1)",
                 provider: kind,
                 workingDirectory: nil,
                 events: [CollectedEvent(
                     timestamp: batch.interval.start.addingTimeInterval(TimeInterval(index)),
                     kind: "chunk-summary",
-                    content: encode(document)
+                    content: boundedDocument
                 )],
-                wasTruncated: false
+                wasTruncated: boundedDocument.utf8.count < encodedDocument.utf8.count
             )
+        }
+        let omissionNotice = omittedChunkCount > 0
+            ? "入力上限により、中間の要約チャンクを\(omittedChunkCount)個省略しました。"
+            : nil
+        var integrationIssues = boundedIssues(batch.issues)
+        if let omissionNotice {
+            integrationIssues.append(CollectionIssue(provider: kind, message: omissionNotice))
         }
         let integrationBatch = CollectionBatch(
             interval: batch.interval,
             sessions: summaryArtifacts,
-            issues: batch.issues
+            issues: integrationIssues,
+            quickMemo: batch.quickMemo.map { truncatedUTF8($0, limit: maxInputBytes / 8) }
         )
-        return try await provider.summarize(
+        let integrated = try await provider.summarize(
             batch: integrationBatch,
             executableOverride: executableOverride,
             modelOverride: modelOverride,
             reasoningOverride: reasoningOverride
         )
+        guard let omissionNotice else { return integrated }
+        return SummaryDocument(
+            overview: integrated.overview,
+            progress: integrated.progress,
+            currentState: integrated.currentState,
+            decisions: integrated.decisions,
+            blockers: integrated.blockers + [omissionNotice],
+            nextSteps: integrated.nextSteps,
+            sessions: integrated.sessions
+        )
+    }
+
+    /// A pathological log archive must not turn one return into an unbounded number of paid CLI
+    /// calls. Preserve both the earliest context and the most recent state, and make the omitted
+    /// middle explicit in the integration prompt and returned document.
+    private func boundedChunks(_ chunks: [CollectionBatch]) -> [CollectionBatch] {
+        guard chunks.count > maxChunkCount else { return chunks }
+        let leadingCount = (maxChunkCount + 1) / 2
+        let trailingCount = maxChunkCount - leadingCount
+        return Array(chunks.prefix(leadingCount)) + Array(chunks.suffix(trailingCount))
     }
 
     private func split(batch: CollectionBatch) -> [CollectionBatch] {
@@ -143,23 +182,23 @@ struct SummaryOrchestrator {
         var chunks: [CollectionBatch] = []
         var current: [CollectedSessionArtifact] = []
         for atom in atoms {
-            let candidate = CollectionBatch(interval: batch.interval, sessions: current + [atom], issues: batch.issues)
+            let candidate = CollectionBatch(interval: batch.interval, sessions: current + [atom], issues: [])
             if !current.isEmpty && encodedSize(of: candidate) > maxInputBytes {
-                chunks.append(CollectionBatch(interval: batch.interval, sessions: current, issues: batch.issues))
+                chunks.append(CollectionBatch(interval: batch.interval, sessions: current, issues: []))
                 current = [atom]
             } else {
                 current.append(atom)
             }
         }
         if !current.isEmpty {
-            chunks.append(CollectionBatch(interval: batch.interval, sessions: current, issues: batch.issues))
+            chunks.append(CollectionBatch(interval: batch.interval, sessions: current, issues: []))
         }
         return chunks.isEmpty ? [batch] : chunks
     }
 
     private func split(session: CollectedSessionArtifact, interval: AwayInterval) -> [CollectedSessionArtifact] {
         let complete = CollectionBatch(interval: interval, sessions: [session], issues: [])
-        guard encodedSize(of: complete) > maxInputBytes, session.events.count > 1 else {
+        guard encodedSize(of: complete) > maxInputBytes else {
             return [session]
         }
 
@@ -195,14 +234,18 @@ struct SummaryOrchestrator {
     ) -> CollectedSessionArtifact {
         var didTruncateContent = false
         let boundedEvents = events.map { event in
-            let bounded = String(event.content.prefix(max(1, maxInputBytes / 2)))
-            if bounded.count != event.content.count { didTruncateContent = true }
-            return CollectedEvent(timestamp: event.timestamp, kind: event.kind, content: bounded)
+            let bounded = truncatedUTF8(event.content, limit: max(1, maxInputBytes / 2))
+            if bounded.utf8.count != event.content.utf8.count { didTruncateContent = true }
+            return CollectedEvent(
+                timestamp: event.timestamp,
+                kind: truncatedUTF8(event.kind, limit: 1_024),
+                content: bounded
+            )
         }
         return CollectedSessionArtifact(
-            id: "\(session.id)#\(index)",
+            id: "\(truncatedUTF8(session.id, limit: 2_048))#\(index)",
             provider: session.provider,
-            workingDirectory: session.workingDirectory,
+            workingDirectory: session.workingDirectory.map { truncatedUTF8($0, limit: 4_096) },
             events: boundedEvents,
             wasTruncated: session.wasTruncated || didTruncateContent
         )
@@ -212,6 +255,43 @@ struct SummaryOrchestrator {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return (try? encoder.encode(batch).count) ?? Int.max
+    }
+
+    private func boundedIssues(_ issues: [CollectionIssue]) -> [CollectionIssue] {
+        let maximumIssueCount = 16
+        let messageByteBudget = max(256, maxInputBytes / 10)
+        var usedBytes = 0
+        var result: [CollectionIssue] = []
+        for issue in issues.prefix(maximumIssueCount) {
+            let remaining = messageByteBudget - usedBytes
+            guard remaining > 0 else { break }
+            let message = truncatedUTF8(issue.message, limit: min(1_024, remaining))
+            guard !message.isEmpty else { break }
+            usedBytes += message.utf8.count
+            result.append(CollectionIssue(id: issue.id, provider: issue.provider, message: message))
+        }
+        if result.count < issues.count, let provider = issues.first?.provider {
+            result.append(CollectionIssue(
+                provider: provider,
+                message: "ほか\(issues.count - result.count)件の収集警告を省略しました。"
+            ))
+        }
+        return result
+    }
+
+    private func truncatedUTF8(_ value: String, limit: Int) -> String {
+        let bytes = Data(value.utf8)
+        let boundedLimit = max(0, limit)
+        guard bytes.count > boundedLimit else { return value }
+
+        var end = min(bytes.count, boundedLimit)
+        while end > 0 {
+            if let result = String(data: bytes.prefix(end), encoding: .utf8) {
+                return result
+            }
+            end -= 1
+        }
+        return ""
     }
 
     private func encode(_ document: SummaryDocument) -> String {

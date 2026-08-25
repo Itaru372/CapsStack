@@ -1,0 +1,4 @@
+interface:
+  display_name: "CapsStack Context"
+  short_description: "退席前メモとCapsStackの状態を安全に管理する"
+  default_prompt: "Use $capsstack-context to save the current work context before I step away."

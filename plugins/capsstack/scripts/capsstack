@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+if [ -n "${CAPSSTACK_CLI:-}" ]; then
+    if [ ! -x "$CAPSSTACK_CLI" ]; then
+        echo "CAPSSTACK_CLI is not executable: $CAPSSTACK_CLI" >&2
+        exit 127
+    fi
+    exec "$CAPSSTACK_CLI" "$@"
+fi
+
+plugin_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repository_root=$(CDPATH= cd -- "$plugin_root/../.." && pwd)
+
+# Prefer this repository's already-tested build while developing the plugin. Installed plugin
+# layouts do not contain the repository Package.swift, so they continue to use PATH or the app.
+if [ -f "$repository_root/Package.swift" ]; then
+    for configuration in debug release; do
+        local_cli="$repository_root/.build/$configuration/capsstack-cli"
+        if [ -x "$local_cli" ]; then
+            exec "$local_cli" "$@"
+        fi
+    done
+fi
+
+if command -v capsstack >/dev/null 2>&1; then
+    exec capsstack "$@"
+fi
+
+bundled_cli="/Applications/CapsStack.app/Contents/Helpers/capsstack"
+if [ -x "$bundled_cli" ]; then
+    exec "$bundled_cli" "$@"
+fi
+
+if [ -f "$repository_root/Package.swift" ] && command -v swift >/dev/null 2>&1; then
+    exec swift run --package-path "$repository_root" capsstack-cli "$@"
+fi
+
+echo "CapsStack CLI was not found. Install CapsStack.app, put capsstack on PATH, or set CAPSSTACK_CLI." >&2
+exit 127

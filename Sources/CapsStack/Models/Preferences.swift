@@ -73,14 +73,15 @@ struct AwayThresholdPreferences: Equatable, Sendable {
 /// A user-written note captured before stepping away. GUI agents do not leave JSONL logs,
 /// so this note is the only supplementary input for those sessions during summarization.
 struct QuickMemoPreferences: Equatable, Sendable {
+    static let maximumUTF8Bytes = 32 * 1_024
     var text: String
 
     init(text: String = "") {
-        self.text = text
+        self.text = Self.boundedText(text)
     }
 
     init(defaults: UserDefaults = .standard) {
-        text = defaults.string(forKey: PreferenceKeys.quickMemo) ?? ""
+        self.init(text: defaults.string(forKey: PreferenceKeys.quickMemo) ?? "")
     }
 
     func save(to defaults: UserDefaults = .standard) {
@@ -90,6 +91,19 @@ struct QuickMemoPreferences: Equatable, Sendable {
     var trimmedText: String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func boundedText(_ value: String) -> String {
+        let data = Data(value.utf8)
+        guard data.count > maximumUTF8Bytes else { return value }
+        var end = maximumUTF8Bytes
+        while end > 0 {
+            if let result = String(data: data.prefix(end), encoding: .utf8) {
+                return result
+            }
+            end -= 1
+        }
+        return ""
     }
 }
 

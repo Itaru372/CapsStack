@@ -3,7 +3,7 @@ import Foundation
 /// A provider receives a normalized collection artifact and returns only a structured summary.
 /// Implementations never resume a source session and never use a source session's working
 /// directory.
-protocol SummaryProvider: AnyObject {
+protocol SummaryProvider: AnyObject, Sendable {
     var kind: CLIKind { get }
     func summarize(
         batch: CollectionBatch,
@@ -38,7 +38,7 @@ enum SummaryPromptFactory {
     }
 }
 
-final class CodexSummaryProvider: SummaryProvider {
+final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {
     let kind: CLIKind = .codex
     private let resolver: CLIResolving
     private let runner: ProcessRunning
@@ -119,6 +119,9 @@ final class CodexSummaryProvider: SummaryProvider {
                     Self.errorMessage(from: result, fallback: "終了コード \(result.terminationStatus)")
                 )
             }
+            guard !result.didTruncateOutput else {
+                throw SummaryProviderError.invalidOutput(.codex)
+            }
             guard let document = SummaryOutputParser.parse(
                 stdout: result.standardOutput,
                 provider: .codex
@@ -149,14 +152,16 @@ final class CodexSummaryProvider: SummaryProvider {
     }
 
     private static func errorMessage(from result: ProcessResult, fallback: String) -> String {
-        let text = String(data: result.standardError, encoding: .utf8)
-            ?? String(data: result.standardOutput, encoding: .utf8)
-            ?? fallback
-        return String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_000))
+        for data in [result.standardError, result.standardOutput] {
+            let text = (String(data: data, encoding: .utf8) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { return String(text.prefix(1_000)) }
+        }
+        return fallback
     }
 }
 
-final class ClaudeCodeSummaryProvider: SummaryProvider {
+final class ClaudeCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
     let kind: CLIKind = .claudeCode
     private let resolver: CLIResolving
     private let runner: ProcessRunning
@@ -202,21 +207,23 @@ final class ClaudeCodeSummaryProvider: SummaryProvider {
                 throw SummaryProviderError.invalidOutput(.claudeCode)
             }
 
-            var arguments = ["-p"]
+            // These documented flags are part of the safety boundary, not optional UX sugar.
+            // Disable tools, settings, and MCP discovery even when `--help` probing fails so a
+            // summary cannot execute hooks or inspect the user's workspace implicitly.
+            var arguments = [
+                "-p",
+                "--output-format", "json",
+                "--tools", "",
+                "--setting-sources", "",
+                "--strict-mcp-config",
+                "--mcp-config", "{}"
+            ]
             let capabilities = help.lowercased()
             if let model = modelOverride?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty {
                 arguments += ["--model", model]
             }
             // -p is the stable non-interactive entry point. The optional flags are appended only
             // when this installed Claude Code advertises them in --help.
-            if capabilities.contains("--output-format") {
-                arguments += ["--output-format", "json"]
-            }
-            if capabilities.contains("--tools") {
-                arguments += ["--tools", ""]
-            } else if capabilities.contains("--disallowedtools") {
-                arguments += ["--disallowedTools", "Bash,Edit,Write,NotebookEdit"]
-            }
             if capabilities.contains("--permission-mode") {
                 arguments += ["--permission-mode", "plan"]
             }
@@ -245,6 +252,9 @@ final class ClaudeCodeSummaryProvider: SummaryProvider {
                     .claudeCode,
                     Self.errorMessage(from: result, fallback: "終了コード \(result.terminationStatus)")
                 )
+            }
+            guard !result.didTruncateOutput else {
+                throw SummaryProviderError.invalidOutput(.claudeCode)
             }
             guard let document = SummaryOutputParser.parse(
                 stdout: result.standardOutput,
@@ -294,14 +304,16 @@ final class ClaudeCodeSummaryProvider: SummaryProvider {
     }
 
     private static func errorMessage(from result: ProcessResult, fallback: String) -> String {
-        let text = String(data: result.standardError, encoding: .utf8)
-            ?? String(data: result.standardOutput, encoding: .utf8)
-            ?? fallback
-        return String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_000))
+        for data in [result.standardError, result.standardOutput] {
+            let text = (String(data: data, encoding: .utf8) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { return String(text.prefix(1_000)) }
+        }
+        return fallback
     }
 }
 
-final class OpenCodeSummaryProvider: SummaryProvider {
+final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
     let kind: CLIKind = .opencode
     private let resolver: CLIResolving
     private let runner: ProcessRunning
@@ -328,6 +340,12 @@ final class OpenCodeSummaryProvider: SummaryProvider {
     ) async throws -> SummaryDocument {
         guard let executable = resolver.executableURL(for: .opencode, override: executableOverride) else {
             throw SummaryProviderError.executableNotFound(.opencode)
+        }
+        guard executable.lastPathComponent != "opencode2" else {
+            throw SummaryProviderError.processFailed(
+                .opencode,
+                "OpenCode 2 CLIは現在のOpenCode 1用アダプタと互換性がありません。"
+            )
         }
 
         let tempDirectory = fileManager.temporaryDirectory
@@ -359,7 +377,7 @@ final class OpenCodeSummaryProvider: SummaryProvider {
                 executableURL: executable,
                 arguments: arguments,
                 currentDirectoryURL: tempDirectory,
-                environment: isolatedOpenCodeEnvironment(for: executable, temporaryDirectory: tempDirectory)
+                environment: isolatedOpenCodeEnvironment(temporaryDirectory: tempDirectory)
             )
             let result = try await run(specification)
             guard result.succeeded else {
@@ -367,6 +385,9 @@ final class OpenCodeSummaryProvider: SummaryProvider {
                     .opencode,
                     Self.errorMessage(from: result, fallback: "終了コード \(result.terminationStatus)")
                 )
+            }
+            guard !result.didTruncateOutput else {
+                throw SummaryProviderError.invalidOutput(.opencode)
             }
             guard let document = SummaryOutputParser.parse(
                 stdout: result.standardOutput,
@@ -397,16 +418,9 @@ final class OpenCodeSummaryProvider: SummaryProvider {
         }
     }
 
-    private func isolatedOpenCodeEnvironment(for executable: URL, temporaryDirectory: URL) -> [String: String] {
-        let isVersionTwo = executable.lastPathComponent == "opencode2"
-        let config: String
-        if isVersionTwo {
-            config = #"{"$schema":"https://opencode.ai/config.json","permissions":[{"action":"*","resource":"*","effect":"deny"}]}"#
-        } else {
-            config = #"{"$schema":"https://opencode.ai/config.json","permission":{"*":"deny"}}"#
-        }
+    private func isolatedOpenCodeEnvironment(temporaryDirectory: URL) -> [String: String] {
         return [
-            "OPENCODE_CONFIG_CONTENT": config,
+            "OPENCODE_CONFIG_CONTENT": #"{"$schema":"https://opencode.ai/config.json","permission":{"*":"deny"}}"#,
             // Keep one-shot summaries out of the user's normal OpenCode history. The CLI
             // supports overriding its database location; the temporary cwd is also used for
             // project-scoped state and is removed after the provider finishes.
@@ -416,14 +430,16 @@ final class OpenCodeSummaryProvider: SummaryProvider {
     }
 
     private static func errorMessage(from result: ProcessResult, fallback: String) -> String {
-        let text = String(data: result.standardError, encoding: .utf8)
-            ?? String(data: result.standardOutput, encoding: .utf8)
-            ?? fallback
-        return String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_000))
+        for data in [result.standardError, result.standardOutput] {
+            let text = (String(data: data, encoding: .utf8) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { return String(text.prefix(1_000)) }
+        }
+        return fallback
     }
 }
 
-final class PiSummaryProvider: SummaryProvider {
+final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
     let kind: CLIKind = .pi
     private let resolver: CLIResolving
     private let runner: ProcessRunning
@@ -497,6 +513,9 @@ final class PiSummaryProvider: SummaryProvider {
                     Self.errorMessage(from: result, fallback: "終了コード \(result.terminationStatus)")
                 )
             }
+            guard !result.didTruncateOutput else {
+                throw SummaryProviderError.invalidOutput(.pi)
+            }
             guard let document = SummaryOutputParser.parse(
                 stdout: result.standardOutput,
                 provider: .pi
@@ -527,10 +546,12 @@ final class PiSummaryProvider: SummaryProvider {
     }
 
     private static func errorMessage(from result: ProcessResult, fallback: String) -> String {
-        let text = String(data: result.standardError, encoding: .utf8)
-            ?? String(data: result.standardOutput, encoding: .utf8)
-            ?? fallback
-        return String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_000))
+        for data in [result.standardError, result.standardOutput] {
+            let text = (String(data: data, encoding: .utf8) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { return String(text.prefix(1_000)) }
+        }
+        return fallback
     }
 }
 
@@ -580,9 +601,18 @@ enum SummaryOutputParser {
     }
 
     private static func parse(dictionary: [String: Any], provider: CLIKind) -> SummaryDocument? {
-        let normalized = Dictionary(uniqueKeysWithValues: dictionary.map { ($0.key.lowercased(), $0.value) })
-        let knownKeys = ["overview", "progress", "currentstate", "current_state", "decisions", "blockers", "nextsteps", "next_steps", "sessions"]
-        guard knownKeys.contains(where: { normalized[$0] != nil }) else { return nil }
+        guard let normalized = normalizedDictionary(dictionary) else { return nil }
+        let hasCurrentState = normalized["currentstate"] != nil || normalized["current_state"] != nil
+        let hasNextSteps = normalized["nextsteps"] != nil || normalized["next_steps"] != nil
+        guard normalized["overview"] != nil,
+              normalized["progress"] != nil,
+              hasCurrentState,
+              normalized["decisions"] != nil,
+              normalized["blockers"] != nil,
+              hasNextSteps,
+              normalized["sessions"] != nil else {
+            return nil
+        }
 
         let overview = stringValue(normalized["overview"])
             ?? stringValue(normalized["summary"])
@@ -592,14 +622,23 @@ enum SummaryOutputParser {
             return nil
         }
 
+        guard let progress = stringArray(normalized["progress"]),
+              let currentState = stringArray(normalized["currentstate"] ?? normalized["current_state"]),
+              let decisions = stringArray(normalized["decisions"]),
+              let blockers = stringArray(normalized["blockers"]),
+              let nextSteps = stringArray(normalized["nextsteps"] ?? normalized["next_steps"]),
+              let sessions = sessionArray(normalized["sessions"], provider: provider) else {
+            return nil
+        }
+
         return SummaryDocument(
             overview: overview,
-            progress: stringArray(normalized["progress"]),
-            currentState: stringArray(normalized["currentstate"] ?? normalized["current_state"]),
-            decisions: stringArray(normalized["decisions"]),
-            blockers: stringArray(normalized["blockers"] ?? normalized["issues"]),
-            nextSteps: stringArray(normalized["nextsteps"] ?? normalized["next_steps"]),
-            sessions: sessionArray(normalized["sessions"], provider: provider)
+            progress: progress,
+            currentState: currentState,
+            decisions: decisions,
+            blockers: blockers,
+            nextSteps: nextSteps,
+            sessions: sessions
         )
     }
 
@@ -609,28 +648,48 @@ enum SummaryOutputParser {
         return nil
     }
 
-    private static func stringArray(_ value: Any?) -> [String] {
-        if let array = value as? [Any] {
-            return array.compactMap { stringValue($0) }.filter { !$0.isEmpty }
+    private static func stringArray(_ value: Any?) -> [String]? {
+        guard let array = value as? [Any] else { return nil }
+        var result: [String] = []
+        result.reserveCapacity(array.count)
+        for item in array {
+            guard let string = item as? String else { return nil }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { result.append(trimmed) }
         }
-        if let string = value as? String, !string.isEmpty { return [string] }
-        return []
+        return result
     }
 
-    private static func sessionArray(_ value: Any?, provider: CLIKind) -> [SessionSummary] {
-        guard let array = value as? [Any] else { return [] }
-        return array.compactMap { item in
-            guard let dictionary = item as? [String: Any] else { return nil }
-            let normalized = Dictionary(uniqueKeysWithValues: dictionary.map { ($0.key.lowercased(), $0.value) })
-            guard let id = stringValue(normalized["sessionid"] ?? normalized["session_id"]),
+    private static func sessionArray(_ value: Any?, provider: CLIKind) -> [SessionSummary]? {
+        guard let array = value as? [Any] else { return nil }
+        var result: [SessionSummary] = []
+        result.reserveCapacity(array.count)
+        for item in array {
+            guard let dictionary = item as? [String: Any],
+                  let normalized = normalizedDictionary(dictionary),
+                  let id = stringValue(normalized["sessionid"] ?? normalized["session_id"]),
                   let summary = stringValue(normalized["summary"] ?? normalized["overview"]),
                   !id.isEmpty, !summary.isEmpty else { return nil }
-            return SessionSummary(
+            result.append(SessionSummary(
                 sessionID: id,
                 source: stringValue(normalized["source"]) ?? provider.displayName,
                 summary: summary
-            )
+            ))
         }
+        return result
+    }
+
+    /// JSON keys are case-sensitive, but provider output is normalized for compatibility. Reject
+    /// case-folding collisions rather than feeding untrusted duplicate keys into
+    /// `Dictionary(uniqueKeysWithValues:)`, which traps and terminates the entire app.
+    private static func normalizedDictionary(_ dictionary: [String: Any]) -> [String: Any]? {
+        var normalized: [String: Any] = [:]
+        for (key, value) in dictionary {
+            let folded = key.lowercased()
+            guard normalized[folded] == nil else { return nil }
+            normalized[folded] = value
+        }
+        return normalized
     }
 
     private static func jsonObjects(in text: String) -> [Any] {

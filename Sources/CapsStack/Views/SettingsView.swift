@@ -404,6 +404,7 @@ private struct NotificationSettingsView: View {
 private struct HotkeySettingsView: View {
     private let shortcuts: [(name: String, shortcut: String)] = [
         ("履歴を開く", "⌘O"),
+        ("退席前メモを開く", "⇧⌘M"),
         ("設定を開く", "⌘,"),
         ("CapsStackを終了", "⌘Q")
     ]

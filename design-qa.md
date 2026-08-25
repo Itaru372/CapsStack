@@ -5,7 +5,7 @@ final result: passed
 ## Scope
 
 - Reference visual: the approved dark return-brief composition selected from the 4–6 direction set.
-- Implementation target: native macOS history window, settings window, application menu bar, and menu-bar popover.
+- Implementation target: native macOS history window, settings window, application menu bar, standard menu-bar menu, and quick-memo window.
 - Adjustment applied: the progress, decision, and next-step section headings and marks use compact hierarchy rather than oversized claims.
 
 ## Verified behavior
@@ -28,8 +28,10 @@ final result: passed
 ### Native chrome
 
 - CapsStack now runs as a regular app with its main history window, Dock presence, and native menu bar.
-- Menu order is `CapsStack`, `履歴`, `設定`, `編集`, `表示`, `ウインドウ`, `ヘルプ`.
-- The menu-bar popover follows the approved native-menu composition: status dot plus away-state title with a right-aligned live timer, the 今すぐ復帰 / 退席前メモ... group, the 履歴を開く ⌘O / 設定... ⌘, group, and CapsStackを終了 ⌘Q.
+- The application uses SwiftUI/AppKit's stable native order: `CapsStack`, `ファイル`, `編集`, `表示`, `履歴`, `設定`, `ウインドウ`, `ヘルプ`. Custom reordering was removed because moving SwiftUI-owned top-level menus during scene changes can violate AppKit submenu ownership.
+- The menu-bar extra uses SwiftUI's standard `.menu` style and system menu items instead of a custom fixed-width popover.
+- The standard menu contains the current state, 退席を開始 / 今すぐ復帰, 退席前メモ..., 履歴を開く ⌘O, 設定... ⌘,, and CapsStackを終了 ⌘Q.
+- 退席前メモ... opens a small dedicated editor because native menu items do not support an embedded text editor. It is also available from the 設定 menu and with ⇧⌘M.
 
 ## Demo data
 
@@ -37,8 +39,10 @@ The demo history is opt-in and memory-only. It is enabled for this local verific
 
 ## Verification
 
-- `swift build` passed.
-- `swift test` passed: 23 tests, 0 failures.
+- `swift build --product CapsStack -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` passed.
+- `swift test` passed: 57 tests, 0 failures. This includes controller end-to-end success/failure/empty-source/manual-away flows, corrupted history, bounded process I/O and timeout termination, summary fallback/chunk limits, UTF-8 limits, portable export naming, and view rendering.
 - `CAPSSTACK_DEMO_DATA=1 ./script/build_and_run.sh --verify` built and launched the packaged app successfully.
-- Runtime capture showed the demo badge, August 18–23 cards, selected 8/23 session (`02:18:42`, four sessions), and the three compact brief sections.
-- A temporary AppKit diagnostic confirmed the final native menu order; it was removed before handoff.
+- The development app bundle and the app staged for the isolated Release package passed deep code-signature verification. The unsigned test PKG contains the app, bundled `capsstack` helper, icon, resource bundle, and Info.plist; Developer ID signing/notarization requires external identities.
+- Real isolated Codex execution and OpenCode session collection succeeded. OpenCode summary invocation reached the configured provider and reported its unavailable local endpoint rather than hanging or corrupting history.
+- Runtime capture showed the demo badge, August 19–24 cards, selected 8/24 session (`02:18:42`, four sessions), and the three compact brief sections.
+- Native interaction covered history selection and month navigation, export panel naming, all seven settings sections and search, CLI status/details, top-level menus, and quick-memo input/clear/dismiss. A native open/dismiss control run completed without AppKit menu errors.

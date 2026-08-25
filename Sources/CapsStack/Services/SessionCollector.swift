@@ -39,7 +39,7 @@ struct SessionCollectorFactory {
 
 /// Collects all selected providers and preserves partial results when one provider has a
 /// missing directory or malformed records.
-final class MultiSessionCollector {
+final class MultiSessionCollector: @unchecked Sendable {
     private let factory: SessionCollectorFactory
 
     init(factory: SessionCollectorFactory = SessionCollectorFactory()) {

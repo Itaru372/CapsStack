@@ -99,7 +99,6 @@ final class AppController: ObservableObject {
         reloadHistory()
         observeDefaults()
         applyBackgroundKeepAlive()
-        refreshEnabledState()
         applyCapsLockSuppression()
         monitor.onChange = { [weak self] isOn in
             Task { @MainActor in
@@ -118,6 +117,9 @@ final class AppController: ObservableObject {
         }
 
         guard isCapsStackEnabled else { return }
+        // Restore a persisted interval before any current-state transition can overwrite it.
+        // `refreshEnabledState()` intentionally handles later preference toggles, but using it
+        // during startup would call `beginAway(Date())` first when Caps Lock is already ON.
         if let storedStart = defaults.object(forKey: PreferenceKeys.awayStart) as? Date {
             if monitor.isCapsLockOn {
                 beginAway(at: storedStart)
@@ -362,12 +364,7 @@ final class AppController: ObservableObject {
             isCapsStackEnabled = feature.isEnabled
             refreshEnabledState()
         }
-        if feature.suppressOriginalCapsLock != isSuppressingOriginalCapsLock && capsLockSuppressionError == nil {
-            // Only auto-apply if no error pending; otherwise user must toggle explicitly
-            applyCapsLockSuppression()
-        } else if feature.suppressOriginalCapsLock != isSuppressingOriginalCapsLock {
-            applyCapsLockSuppression()
-        } else if feature.suppressOriginalCapsLock {
+        if feature.suppressOriginalCapsLock != isSuppressingOriginalCapsLock || feature.suppressOriginalCapsLock {
             // Re-evaluate suppression error (e.g. permission granted after prompt)
             applyCapsLockSuppression()
         }
@@ -469,8 +466,17 @@ final class AppController: ObservableObject {
 
             if batch.sessions.isEmpty {
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
-                saveEmptyHistory(batch: batch, requestedSources: sources)
-                phase = .idle
+                do {
+                    try saveEmptyHistory(batch: batch, requestedSources: sources)
+                    phase = .idle
+                } catch {
+                    lastError = error.localizedDescription
+                    phase = .failed
+                    await notifications.notifyFailure(
+                        message: error.localizedDescription,
+                        interval: interval
+                    )
+                }
                 activeSessionCount = 0
                 return
             }
@@ -522,6 +528,7 @@ final class AppController: ObservableObject {
                 sessionCount: batch.sessions.count
             )
         } catch {
+            let summaryErrorMessage = error.localizedDescription
             let failed = HistoryEntry(
                 id: pendingEntry.id,
                 interval: pendingEntry.interval,
@@ -529,20 +536,25 @@ final class AppController: ObservableObject {
                 sessionCount: pendingEntry.sessionCount,
                 sources: pendingEntry.sources,
                 collectionIssues: pendingEntry.collectionIssues,
-                errorMessage: error.localizedDescription,
+                errorMessage: summaryErrorMessage,
                 pendingArtifactID: pendingEntry.pendingArtifactID,
                 quickMemo: pendingEntry.quickMemo
             )
             guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
-            _ = try? historyStore.replace(failed)
+            var presentedErrorMessage = summaryErrorMessage
+            do {
+                _ = try historyStore.replace(failed)
+            } catch {
+                presentedErrorMessage += "\n再試行状態を保存できませんでした: \(error.localizedDescription)"
+            }
             reloadHistory()
             phase = .failed
-            lastError = error.localizedDescription
-            await notifications.notifyFailure(message: error.localizedDescription, interval: batch.interval)
+            lastError = presentedErrorMessage
+            await notifications.notifyFailure(message: presentedErrorMessage, interval: batch.interval)
         }
     }
 
-    private func saveEmptyHistory(batch: CollectionBatch, requestedSources: Set<CLIKind>) {
+    private func saveEmptyHistory(batch: CollectionBatch, requestedSources: Set<CLIKind>) throws {
         let entry = HistoryEntry(
             interval: batch.interval,
             status: .empty,
@@ -551,7 +563,7 @@ final class AppController: ObservableObject {
             collectionIssues: batch.issues,
             errorMessage: requestedSources.isEmpty ? "収集元が選択されていません。" : nil
         )
-        _ = try? historyStore.save(entry)
+        _ = try historyStore.save(entry)
         reloadHistory()
     }
 
@@ -618,6 +630,12 @@ final class AppController: ObservableObject {
             return
         }
 
-        history = historyStore.entries
+        do {
+            history = try historyStore.load()
+        } catch {
+            history = []
+            lastError = error.localizedDescription
+            phase = .failed
+        }
     }
 }

@@ -2,6 +2,17 @@ import AppKit
 import UniformTypeIdentifiers
 import SwiftUI
 
+enum HistoryExportNaming {
+    static func fileName(for date: Date, timeZone: TimeZone = .current) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm"
+        return "CapsStack-\(formatter.string(from: date)).md"
+    }
+}
+
 struct HistoryView: View {
     @ObservedObject var controller: AppController
     @State private var selection: UUID?
@@ -72,11 +83,11 @@ struct HistoryView: View {
         }
         .onChange(of: controller.history) { _, entries in
             guard let selection else {
-                self.selection = entries.first?.id
+                selectNewestEntry(in: entries)
                 return
             }
             if !entries.contains(where: { $0.id == selection }) {
-                self.selection = entries.first?.id
+                selectNewestEntry(in: entries)
             }
         }
     }
@@ -142,7 +153,7 @@ struct HistoryView: View {
         guard let summary = entry.summary else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "CapsStack-\(entry.interval.start.formatted(.dateTime.year().month().day().hour().minute())).md"
+        panel.nameFieldStringValue = HistoryExportNaming.fileName(for: entry.interval.start)
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             do {
@@ -164,6 +175,13 @@ struct HistoryView: View {
 
         displayedMonth = Calendar.current.startOfMonth(for: shifted)
         selection = entriesInDisplayedMonth.first?.id
+    }
+
+    private func selectNewestEntry(in entries: [HistoryEntry]) {
+        selection = entries.first?.id
+        if let newest = entries.first {
+            displayedMonth = Calendar.current.startOfMonth(for: newest.interval.end)
+        }
     }
 
     private var selectedEntry: HistoryEntry? {

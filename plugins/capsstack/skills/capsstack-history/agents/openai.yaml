@@ -1,0 +1,4 @@
+interface:
+  display_name: "CapsStack History"
+  short_description: "CapsStackの復帰要約と作業履歴を安全に取得する"
+  default_prompt: "Use $capsstack-history to review my latest CapsStack return brief."

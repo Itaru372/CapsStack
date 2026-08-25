@@ -3,6 +3,23 @@ import XCTest
 @testable import CapsStack
 
 final class BackendTests: XCTestCase {
+    func testCLIResolverHonorsCustomSessionDirectories() {
+        let resolver = CLIResolver(
+            homeDirectory: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+            environment: [
+                "CODEX_HOME": "/custom/codex",
+                "CLAUDE_CONFIG_DIR": "/custom/claude",
+                "XDG_DATA_HOME": "/custom/data",
+                "PI_CODING_AGENT_SESSION_DIR": "/custom/pi-sessions"
+            ]
+        )
+
+        XCTAssertEqual(resolver.logDirectory(for: .codex).path, "/custom/codex/sessions")
+        XCTAssertEqual(resolver.logDirectory(for: .claudeCode).path, "/custom/claude/projects")
+        XCTAssertEqual(resolver.logDirectory(for: .opencode).path, "/custom/data/opencode")
+        XCTAssertEqual(resolver.logDirectory(for: .pi).path, "/custom/pi-sessions")
+    }
+
     func testJSONLCollectorUsesTimeWindowAndKeepsMalformedLineIssue() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -57,6 +74,33 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(claudeResult.sessions[0].provider, .claudeCode)
         XCTAssertEqual(claudeResult.sessions[0].events.count, 1)
         XCTAssertEqual(claudeResult.sessions[0].events[0].content, "inside claude")
+    }
+
+    func testJSONLCollectorCapsMultibyteEventByUTF8Bytes() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-jsonl-utf8-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let object: [String: Any] = [
+            "timestamp": formatter.string(from: now),
+            "session_id": "large",
+            "type": "assistant",
+            "message": String(repeating: "進捗", count: 20_000)
+        ]
+        let line = try JSONSerialization.data(withJSONObject: object)
+        try line.write(to: root.appendingPathComponent("large.jsonl"), options: .atomic)
+
+        let result = JSONLSessionCollector(provider: .codex, rootDirectory: root).collect(
+            interval: AwayInterval(start: now.addingTimeInterval(-1), end: now.addingTimeInterval(1))
+        )
+        let content = try XCTUnwrap(result.sessions.first?.events.first?.content)
+        XCTAssertLessThanOrEqual(content.utf8.count, 32_768)
+        XCTAssertNotNil(content.data(using: .utf8))
     }
 
     func testSummaryOrchestratorUsesPrimaryProvider() async throws {
@@ -164,7 +208,9 @@ final class BackendTests: XCTestCase {
                 XCTAssertTrue(specification.arguments.contains(where: { $0 == "--model" }))
                 XCTAssertTrue(specification.arguments.contains(where: { $0 == "--effort" }))
                 XCTAssertTrue(specification.arguments.contains(where: { $0 == "high" }))
-                XCTAssertTrue(specification.arguments.contains(where: { $0 == "--disallowedTools" }))
+                XCTAssertTrue(specification.arguments.contains(where: { $0 == "--tools" }))
+                XCTAssertTrue(specification.arguments.contains(where: { $0 == "--setting-sources" }))
+                XCTAssertTrue(specification.arguments.contains(where: { $0 == "--strict-mcp-config" }))
             case .opencode:
                 XCTAssertTrue(specification.arguments.contains(where: { $0 == "run" }))
                 XCTAssertTrue(specification.arguments.contains(where: { $0 == "--format" }))
@@ -179,6 +225,51 @@ final class BackendTests: XCTestCase {
                 XCTAssertTrue(specification.arguments.contains(where: { $0 == "high" }))
             }
         }
+    }
+
+    func testSummaryProviderRejectsTruncatedStructuredOutput() async throws {
+        let provider = CodexSummaryProvider(
+            resolver: StaticCLIResolver(),
+            runner: TruncatedProcessRunner(),
+            fileManager: .default
+        )
+
+        do {
+            _ = try await provider.summarize(
+                batch: makeBatch(),
+                executableOverride: nil,
+                modelOverride: nil,
+                reasoningOverride: nil
+            )
+            XCTFail("expected invalid output")
+        } catch let error as SummaryProviderError {
+            XCTAssertEqual(error, .invalidOutput(.codex))
+        }
+    }
+
+    func testOpenCode2OverrideFailsBeforeUsingIncompatibleArguments() async throws {
+        let runner = RecordingProcessRunner()
+        let provider = OpenCodeSummaryProvider(
+            resolver: OpenCode2CLIResolver(),
+            runner: runner,
+            fileManager: .default
+        )
+
+        do {
+            _ = try await provider.summarize(
+                batch: makeBatch(),
+                executableOverride: "/usr/local/bin/opencode2",
+                modelOverride: nil,
+                reasoningOverride: nil
+            )
+            XCTFail("expected unsupported OpenCode 2 error")
+        } catch let error as SummaryProviderError {
+            guard case .processFailed(.opencode, let message) = error else {
+                return XCTFail("unexpected error: \(error)")
+            }
+            XCTAssertTrue(message.contains("互換性がありません"))
+        }
+        XCTAssertTrue(runner.specifications.isEmpty)
     }
 
     func testOpenCodeCollectorUsesSessionListAndExport() throws {
@@ -211,6 +302,42 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(calls.last, ["export", "session-1"])
     }
 
+    func testOpenCodeCollectorDrainsLargeStandardError() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-opencode-stderr-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let now = Date()
+        let stamp = Int(now.timeIntervalSince1970 * 1_000)
+        let executable = root.appendingPathComponent("fake-opencode")
+        let script = """
+        #!/bin/sh
+        head -c 200000 /dev/zero >&2
+        if [ "$1" = "session" ]; then
+          printf '[{"id":"session-1","directory":"/tmp/project","time":{"created":\(stamp),"updated":\(stamp)}}]'
+        else
+          printf '{"sessionID":"session-1","messages":[{"role":"assistant","time":{"created":\(stamp)},"parts":[{"type":"text","text":"stderr drained"}]}]}'
+        fi
+        """
+        try Data(script.utf8).write(to: executable, options: .atomic)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let collector = OpenCodeSessionCollector(
+            rootDirectory: root,
+            executableURL: executable,
+            maxSessions: 10,
+            collectionTimeout: 5
+        )
+        let result = collector.collect(
+            interval: AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+        )
+
+        XCTAssertEqual(result.sessions.first?.events.first?.content, "stderr drained")
+        XCTAssertTrue(result.issues.isEmpty)
+    }
+
     func testProcessRunnerDrainsLargeOutputWithoutDeadlocking() async throws {
         let runner = ProcessRunner(outputLimit: 1_024)
         let result = try await runner.run(
@@ -226,6 +353,26 @@ final class BackendTests: XCTestCase {
         XCTAssertTrue(result.didTruncateOutput)
     }
 
+    func testProcessRunnerTimeoutKillsTermIgnoringProcess() async throws {
+        let runner = ProcessRunner(outputLimit: 1_024)
+        let startedAt = Date()
+
+        do {
+            _ = try await runner.run(
+                ProcessSpecification(
+                    executableURL: URL(fileURLWithPath: "/bin/sh"),
+                    arguments: ["-c", "trap '' TERM; while :; do sleep 1; done"]
+                ),
+                timeout: 0.1
+            )
+            XCTFail("expected timeout")
+        } catch let error as ProcessRunnerError {
+            XCTAssertEqual(error, .timedOut)
+        }
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 3)
+    }
+
     func testSummaryOutputParserReadsOpenCodeTextEvent() throws {
         let event = """
         [{"type":"text","sessionID":"opencode-session","part":{"type":"text","text":"{\\"overview\\":\\"OpenCode event\\",\\"progress\\":[],\\"currentState\\":[],\\"decisions\\":[],\\"blockers\\":[],\\"nextSteps\\":[],\\"sessions\\":[]}"}}]
@@ -235,6 +382,109 @@ final class BackendTests: XCTestCase {
             SummaryOutputParser.parse(stdout: Data(event.utf8), provider: .opencode)
         )
         XCTAssertEqual(document.overview, "OpenCode event")
+    }
+
+    func testSummaryOutputParserRejectsPartialAndCaseCollidingObjects() {
+        let partial = Data(#"{"overview":"missing required arrays"}"#.utf8)
+        XCTAssertNil(SummaryOutputParser.parse(stdout: partial, provider: .codex))
+
+        let wrongTypes = Data(
+            #"{"overview":"wrong types","progress":"not an array","currentState":[],"decisions":[],"blockers":[],"nextSteps":[],"sessions":[]}"#.utf8
+        )
+        XCTAssertNil(SummaryOutputParser.parse(stdout: wrongTypes, provider: .codex))
+
+        let collision = Data(
+            #"{"overview":"first","OVERVIEW":"second","progress":[],"currentState":[],"decisions":[],"blockers":[],"nextSteps":[],"sessions":[]}"#.utf8
+        )
+        XCTAssertNil(SummaryOutputParser.parse(stdout: collision, provider: .codex))
+    }
+
+    func testSummaryOrchestratorPreservesMemoWhenLargeUTF8EventIsSplit() async throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let provider = FakeSummaryProvider(kind: .codex, document: makeDocument("chunk"))
+        let orchestrator = SummaryOrchestrator(
+            maxInputBytes: 16 * 1_024,
+            providers: [.codex: provider]
+        )
+        let batch = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: [CollectedSessionArtifact(
+                id: "large-session",
+                provider: .codex,
+                workingDirectory: "/tmp/project",
+                events: [CollectedEvent(
+                    timestamp: start,
+                    kind: "assistant",
+                    content: String(repeating: "進捗", count: 10_000)
+                )],
+                wasTruncated: false
+            )],
+            issues: [],
+            quickMemo: "GUIで仕様を整理した"
+        )
+
+        _ = try await orchestrator.summarize(
+            batch: batch,
+            preferences: SummarizerPreferences(primary: .codex, automaticFallback: false)
+        )
+
+        XCTAssertEqual(provider.callCount, 2)
+        XCTAssertNil(provider.receivedBatches.first?.quickMemo)
+        XCTAssertEqual(provider.receivedBatches.last?.quickMemo, "GUIで仕様を整理した")
+        XCTAssertTrue(provider.receivedBatches.first?.sessions.first?.wasTruncated == true)
+        XCTAssertLessThan(
+            provider.receivedBatches.first?.sessions.first?.events.first?.content.utf8.count ?? .max,
+            16 * 1_024
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        for receivedBatch in provider.receivedBatches {
+            XCTAssertLessThanOrEqual(try encoder.encode(receivedBatch).count, 16 * 1_024)
+        }
+    }
+
+    func testSummaryOrchestratorBoundsPaidChunkCallsAndReportsOmission() async throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let provider = FakeSummaryProvider(kind: .codex, document: makeDocument("bounded"))
+        let orchestrator = SummaryOrchestrator(
+            maxInputBytes: 16 * 1_024,
+            maxChunkCount: 4,
+            providers: [.codex: provider]
+        )
+        let sessions = (0..<12).map { index in
+            CollectedSessionArtifact(
+                id: "session-\(index)",
+                provider: .codex,
+                workingDirectory: nil,
+                events: [CollectedEvent(
+                    timestamp: start.addingTimeInterval(TimeInterval(index)),
+                    kind: "assistant",
+                    content: String(repeating: "x", count: 12_000)
+                )],
+                wasTruncated: false
+            )
+        }
+        let batch = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: sessions,
+            issues: []
+        )
+
+        let outcome = try await orchestrator.summarize(
+            batch: batch,
+            preferences: SummarizerPreferences(primary: .codex, automaticFallback: false)
+        )
+
+        XCTAssertEqual(provider.callCount, 5)
+        XCTAssertEqual(provider.receivedBatches.first?.sessions.first?.id, "session-0")
+        XCTAssertEqual(provider.receivedBatches[3].sessions.first?.id, "session-11")
+        XCTAssertTrue(outcome.document.blockers.contains { $0.contains("8個省略") })
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        for receivedBatch in provider.receivedBatches {
+            XCTAssertLessThanOrEqual(try encoder.encode(receivedBatch).count, 16 * 1_024)
+        }
     }
 
     func testHistoryStoreDeletesRawAfterCompletionAndKeepsFailedPendingArtifact() throws {
@@ -343,6 +593,55 @@ final class BackendTests: XCTestCase {
         XCTAssertTrue(try store.load().isEmpty)
     }
 
+    func testHistoryStoreDeleteAllRemovesOrphanPendingArtifacts() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-orphan-pending-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let store = HistoryStore(directoryURL: directory)
+        let orphanID = try store.savePendingArtifact(makeBatch())
+        let orphanURL = directory
+            .appendingPathComponent("Pending", isDirectory: true)
+            .appendingPathComponent("\(orphanID.uuidString).json")
+        XCTAssertTrue(fileManager.fileExists(atPath: orphanURL.path))
+
+        try store.deleteAll()
+
+        XCTAssertFalse(fileManager.fileExists(atPath: orphanURL.path))
+        XCTAssertTrue(try store.load().isEmpty)
+    }
+
+    @MainActor
+    func testAppControllerSurfacesCorruptedHistoryInsteadOfHidingIt() throws {
+        let suiteName = "CapsStackCorruptHistoryTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data("not-json".utf8).write(
+            to: directory.appendingPathComponent("history.json"),
+            options: .atomic
+        )
+
+        let controller = AppController(
+            defaults: defaults,
+            resolver: StaticCLIResolver(),
+            runner: RecordingProcessRunner(),
+            historyStore: HistoryStore(directoryURL: directory),
+            notifications: SilentBackendNotificationService()
+        )
+
+        controller.reloadHistory()
+
+        XCTAssertEqual(controller.phase, .failed)
+        XCTAssertTrue(controller.history.isEmpty)
+        XCTAssertEqual(controller.lastError, HistoryStoreError.invalidHistoryData.localizedDescription)
+    }
+
     @MainActor
     func testAppControllerRetrySetsSynchronousBusyGuard() async throws {
         let suiteName = "CapsStackRetryGuardTests.\(UUID().uuidString)"
@@ -377,6 +676,287 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(runner.callCount, 1)
         XCTAssertEqual(try store.load().count, 1)
         XCTAssertEqual(try store.load().first?.status, .completed)
+    }
+
+    @MainActor
+    func testAppControllerRestoresPersistedAwayStartWithoutChangingCapsLock() async throws {
+        let suiteName = "CapsStackRestoreAwayTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: PreferenceKeys.capsStackEnabled)
+        defaults.set(false, forKey: PreferenceKeys.keepRunningInBackground)
+        defaults.set(false, forKey: PreferenceKeys.suppressOriginalCapsLock)
+        defaults.set(false, forKey: PreferenceKeys.collectCodex)
+        defaults.set(false, forKey: PreferenceKeys.collectClaude)
+        defaults.set(false, forKey: PreferenceKeys.collectOpenCode)
+        defaults.set(false, forKey: PreferenceKeys.collectPi)
+        let storedStart = Date().addingTimeInterval(-300)
+        defaults.set(storedStart, forKey: PreferenceKeys.awayStart)
+
+        let monitor = CapsLockMonitor(
+            pollingInterval: 60,
+            systemStateReader: { true },
+            systemStateSetter: { _ in
+                XCTFail("suppression was already disabled, so Caps Lock must not be changed")
+            }
+        )
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let controller = AppController(
+            defaults: defaults,
+            monitor: monitor,
+            resolver: StaticCLIResolver(),
+            runner: RecordingProcessRunner(),
+            historyStore: HistoryStore(directoryURL: directory),
+            notifications: SilentBackendNotificationService()
+        )
+
+        controller.start()
+
+        XCTAssertEqual(controller.phase, .away)
+        XCTAssertEqual(controller.awayStartedAt, storedStart)
+        XCTAssertEqual(defaults.object(forKey: PreferenceKeys.awayStart) as? Date, storedStart)
+
+        controller.setCapsStackEnabled(false)
+        await Task.yield()
+    }
+
+    @MainActor
+    func testAppControllerCompletesPersistedAwayWorkflowEndToEnd() async throws {
+        let suiteName = "CapsStackEndToEndTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: PreferenceKeys.capsStackEnabled)
+        defaults.set(false, forKey: PreferenceKeys.keepRunningInBackground)
+        defaults.set(false, forKey: PreferenceKeys.suppressOriginalCapsLock)
+        defaults.set(true, forKey: PreferenceKeys.collectCodex)
+        defaults.set(false, forKey: PreferenceKeys.collectClaude)
+        defaults.set(false, forKey: PreferenceKeys.collectOpenCode)
+        defaults.set(false, forKey: PreferenceKeys.collectPi)
+        defaults.set(CLIKind.codex.rawValue, forKey: PreferenceKeys.primarySummarizer)
+        defaults.set(false, forKey: PreferenceKeys.automaticFallback)
+        defaults.set("GUIで統合テストを確認", forKey: PreferenceKeys.quickMemo)
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+        let logs = root.appendingPathComponent("logs", isDirectory: true)
+        let historyDirectory = root.appendingPathComponent("history", isDirectory: true)
+        try fileManager.createDirectory(at: logs, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let now = Date()
+        let storedStart = now.addingTimeInterval(-60)
+        defaults.set(storedStart, forKey: PreferenceKeys.awayStart)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let line = """
+        {"timestamp":"\(formatter.string(from: now.addingTimeInterval(-30)))","session_id":"e2e","type":"assistant","message":"統合テストの進捗"}
+        """
+        try Data(line.utf8).write(
+            to: logs.appendingPathComponent("session.jsonl"),
+            options: .atomic
+        )
+
+        let runner = RecordingProcessRunner()
+        let controller = AppController(
+            defaults: defaults,
+            monitor: CapsLockMonitor(
+                pollingInterval: 60,
+                systemStateReader: { false },
+                systemStateSetter: { _ in XCTFail("Caps Lock must not be changed") }
+            ),
+            resolver: FixedDirectoryCLIResolver(logDirectory: logs),
+            runner: runner,
+            historyStore: HistoryStore(directoryURL: historyDirectory),
+            notifications: SilentBackendNotificationService()
+        )
+
+        controller.start()
+        for _ in 0..<200 where controller.phase == .summarizing || controller.phase == .away {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(controller.phase, .idle)
+        let entry = try XCTUnwrap(controller.history.first)
+        XCTAssertEqual(entry.status, .completed)
+        XCTAssertEqual(entry.summary?.overview, "provider test")
+        XCTAssertEqual(entry.sessionCount, 1)
+        XCTAssertEqual(entry.quickMemo, "GUIで統合テストを確認")
+        XCTAssertEqual(defaults.string(forKey: PreferenceKeys.quickMemo), "")
+        XCTAssertNil(defaults.object(forKey: PreferenceKeys.awayStart))
+        XCTAssertTrue(runner.nonHelpSpecifications.contains { $0.arguments.first == "exec" })
+        let pendingFiles = try fileManager.contentsOfDirectory(
+            at: historyDirectory.appendingPathComponent("Pending", isDirectory: true),
+            includingPropertiesForKeys: nil
+        )
+        XCTAssertTrue(pendingFiles.isEmpty)
+
+        controller.setCapsStackEnabled(false)
+        await Task.yield()
+    }
+
+    @MainActor
+    func testAppControllerSavesEmptyHistoryWhenNoSourceIsSelected() async throws {
+        let suiteName = "CapsStackEmptyWorkflowTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: PreferenceKeys.capsStackEnabled)
+        defaults.set(false, forKey: PreferenceKeys.keepRunningInBackground)
+        defaults.set(false, forKey: PreferenceKeys.suppressOriginalCapsLock)
+        defaults.set(false, forKey: PreferenceKeys.collectCodex)
+        defaults.set(false, forKey: PreferenceKeys.collectClaude)
+        defaults.set(false, forKey: PreferenceKeys.collectOpenCode)
+        defaults.set(false, forKey: PreferenceKeys.collectPi)
+        defaults.set(Date().addingTimeInterval(-30), forKey: PreferenceKeys.awayStart)
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controller = AppController(
+            defaults: defaults,
+            monitor: CapsLockMonitor(
+                pollingInterval: 60,
+                systemStateReader: { false },
+                systemStateSetter: { _ in XCTFail("Caps Lock must not be changed") }
+            ),
+            resolver: FixedDirectoryCLIResolver(logDirectory: root),
+            runner: RecordingProcessRunner(),
+            historyStore: HistoryStore(directoryURL: root.appendingPathComponent("history")),
+            notifications: SilentBackendNotificationService()
+        )
+
+        controller.start()
+        for _ in 0..<200 where controller.phase == .summarizing || controller.phase == .away {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(controller.phase, .idle)
+        let entry = try XCTUnwrap(controller.history.first)
+        XCTAssertEqual(entry.status, .empty)
+        XCTAssertEqual(entry.sessionCount, 0)
+        XCTAssertEqual(entry.errorMessage, "収集元が選択されていません。")
+
+        controller.setCapsStackEnabled(false)
+        await Task.yield()
+    }
+
+    @MainActor
+    func testAppControllerManualAwayAndReturnCompletesWorkflow() async throws {
+        let suiteName = "CapsStackManualAwayTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: PreferenceKeys.capsStackEnabled)
+        defaults.set(false, forKey: PreferenceKeys.keepRunningInBackground)
+        defaults.set(false, forKey: PreferenceKeys.suppressOriginalCapsLock)
+        defaults.set(false, forKey: PreferenceKeys.collectCodex)
+        defaults.set(false, forKey: PreferenceKeys.collectClaude)
+        defaults.set(false, forKey: PreferenceKeys.collectOpenCode)
+        defaults.set(false, forKey: PreferenceKeys.collectPi)
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controller = AppController(
+            defaults: defaults,
+            monitor: CapsLockMonitor(
+                pollingInterval: 60,
+                systemStateReader: { false },
+                systemStateSetter: { _ in XCTFail("Caps Lock must not be changed") }
+            ),
+            resolver: FixedDirectoryCLIResolver(logDirectory: root),
+            runner: RecordingProcessRunner(),
+            historyStore: HistoryStore(directoryURL: root.appendingPathComponent("history")),
+            notifications: SilentBackendNotificationService()
+        )
+        controller.start()
+
+        controller.beginAwayManually()
+        XCTAssertEqual(controller.phase, .away)
+        XCTAssertNotNil(defaults.object(forKey: PreferenceKeys.awayStart) as? Date)
+
+        // Sub-second toggles are intentionally ignored as accidental input.
+        try await Task.sleep(nanoseconds: 1_050_000_000)
+        controller.endAwayManually()
+        for _ in 0..<200 where controller.phase == .summarizing || controller.phase == .away {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(controller.phase, .idle)
+        XCTAssertNil(defaults.object(forKey: PreferenceKeys.awayStart))
+        XCTAssertEqual(controller.history.first?.status, .empty)
+        XCTAssertEqual(controller.history.first?.errorMessage, "収集元が選択されていません。")
+
+        controller.setCapsStackEnabled(false)
+        await Task.yield()
+    }
+
+    @MainActor
+    func testAppControllerKeepsPendingArtifactAfterSummaryFailure() async throws {
+        let suiteName = "CapsStackFailedWorkflowTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: PreferenceKeys.capsStackEnabled)
+        defaults.set(false, forKey: PreferenceKeys.keepRunningInBackground)
+        defaults.set(false, forKey: PreferenceKeys.suppressOriginalCapsLock)
+        defaults.set(true, forKey: PreferenceKeys.collectCodex)
+        defaults.set(false, forKey: PreferenceKeys.collectClaude)
+        defaults.set(false, forKey: PreferenceKeys.collectOpenCode)
+        defaults.set(false, forKey: PreferenceKeys.collectPi)
+        defaults.set(CLIKind.codex.rawValue, forKey: PreferenceKeys.primarySummarizer)
+        defaults.set(false, forKey: PreferenceKeys.automaticFallback)
+        defaults.set("失敗後も残すメモ", forKey: PreferenceKeys.quickMemo)
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+        let logs = root.appendingPathComponent("logs", isDirectory: true)
+        let historyDirectory = root.appendingPathComponent("history", isDirectory: true)
+        try fileManager.createDirectory(at: logs, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        let now = Date()
+        defaults.set(now.addingTimeInterval(-60), forKey: PreferenceKeys.awayStart)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let line = """
+        {"timestamp":"\(formatter.string(from: now.addingTimeInterval(-30)))","session_id":"failed","type":"assistant","message":"保存すべき進捗"}
+        """
+        try Data(line.utf8).write(
+            to: logs.appendingPathComponent("session.jsonl"),
+            options: .atomic
+        )
+
+        let historyStore = HistoryStore(directoryURL: historyDirectory)
+        let controller = AppController(
+            defaults: defaults,
+            monitor: CapsLockMonitor(
+                pollingInterval: 60,
+                systemStateReader: { false },
+                systemStateSetter: { _ in XCTFail("Caps Lock must not be changed") }
+            ),
+            resolver: FixedDirectoryCLIResolver(logDirectory: logs),
+            runner: FailingSummaryProcessRunner(),
+            historyStore: historyStore,
+            notifications: SilentBackendNotificationService()
+        )
+
+        controller.start()
+        for _ in 0..<200 where controller.phase == .summarizing || controller.phase == .away {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(controller.phase, .failed)
+        let entry = try XCTUnwrap(controller.history.first)
+        XCTAssertEqual(entry.status, .pending)
+        XCTAssertTrue(entry.errorMessage?.contains("synthetic failure") == true)
+        XCTAssertEqual(entry.quickMemo, "失敗後も残すメモ")
+        let pendingID = try XCTUnwrap(entry.pendingArtifactID)
+        XCTAssertEqual(try historyStore.loadPending(pendingID)?.quickMemo, "失敗後も残すメモ")
+        XCTAssertEqual(defaults.string(forKey: PreferenceKeys.quickMemo), "")
+
+        controller.setCapsStackEnabled(false)
+        await Task.yield()
     }
 
     func testSummaryMarkdownIncludesMemoAndSections() {
@@ -498,6 +1078,7 @@ private final class FakeSummaryProvider: SummaryProvider, @unchecked Sendable {
     private let document: SummaryDocument?
     private let error: Error?
     private(set) var callCount = 0
+    private(set) var receivedBatches: [CollectionBatch] = []
 
     init(kind: CLIKind, document: SummaryDocument) {
         self.kind = kind
@@ -521,6 +1102,7 @@ private final class FakeSummaryProvider: SummaryProvider, @unchecked Sendable {
         reasoningOverride: String?
     ) async throws -> SummaryDocument {
         callCount += 1
+        receivedBatches.append(batch)
         lastModel = modelOverride
         lastReasoning = reasoningOverride
         if let error { throw error }
@@ -545,6 +1127,48 @@ private struct StaticCLIResolver: CLIResolving {
 
     func logDirectory(for kind: CLIKind) -> URL {
         URL(fileURLWithPath: "/tmp", isDirectory: true)
+    }
+}
+
+private struct OpenCode2CLIResolver: CLIResolving {
+    func executableURL(for kind: CLIKind, override: String?) -> URL? {
+        URL(fileURLWithPath: "/usr/local/bin/opencode2")
+    }
+
+    func status(for kind: CLIKind, override: String?) -> CLIStatus {
+        CLIStatus(
+            kind: kind,
+            executablePath: "/usr/local/bin/opencode2",
+            version: "2.0.0-beta",
+            logDirectory: "/tmp",
+            canReadLogs: false
+        )
+    }
+
+    func logDirectory(for kind: CLIKind) -> URL {
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+    }
+}
+
+private struct FixedDirectoryCLIResolver: CLIResolving {
+    let logDirectory: URL
+
+    func executableURL(for kind: CLIKind, override: String?) -> URL? {
+        URL(fileURLWithPath: "/usr/bin/true")
+    }
+
+    func status(for kind: CLIKind, override: String?) -> CLIStatus {
+        CLIStatus(
+            kind: kind,
+            executablePath: "/usr/bin/true",
+            version: "test",
+            logDirectory: logDirectory.path,
+            canReadLogs: true
+        )
+    }
+
+    func logDirectory(for kind: CLIKind) -> URL {
+        logDirectory
     }
 }
 
@@ -599,7 +1223,39 @@ private final class DelayedProcessRunner: ProcessRunning, @unchecked Sendable {
     }
 }
 
-private final class SilentBackendNotificationService: NotificationServicing {
+private final class TruncatedProcessRunner: ProcessRunning, @unchecked Sendable {
+    func run(_ specification: ProcessSpecification, timeout: TimeInterval) async throws -> ProcessResult {
+        ProcessResult(
+            terminationStatus: 0,
+            standardOutput: Data(
+                #"{"overview":"partial","progress":[],"currentState":[],"decisions":[],"blockers":[],"nextSteps":[],"sessions":[]}"#.utf8
+            ),
+            standardError: Data(),
+            didTruncateOutput: true
+        )
+    }
+}
+
+private final class FailingSummaryProcessRunner: ProcessRunning, @unchecked Sendable {
+    func run(_ specification: ProcessSpecification, timeout: TimeInterval) async throws -> ProcessResult {
+        if specification.arguments == ["--version"] {
+            return ProcessResult(
+                terminationStatus: 0,
+                standardOutput: Data("test".utf8),
+                standardError: Data(),
+                didTruncateOutput: false
+            )
+        }
+        return ProcessResult(
+            terminationStatus: 1,
+            standardOutput: Data(),
+            standardError: Data("synthetic failure".utf8),
+            didTruncateOutput: false
+        )
+    }
+}
+
+private final class SilentBackendNotificationService: NotificationServicing, @unchecked Sendable {
     func requestAuthorization() async -> Bool { false }
 
     func notify(

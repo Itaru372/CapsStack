@@ -2,12 +2,15 @@
 set -euo pipefail
 
 APP_NAME="CapsStack"
+CLI_PRODUCT="capsstack-cli"
 BUNDLE_ID="com.capsstack.CapsStack"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$ROOT_DIR/build/package"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_BINARY="$APP_CONTENTS/MacOS/$APP_NAME"
+APP_HELPERS="$APP_CONTENTS/Helpers"
+CLI_BINARY="$APP_HELPERS/capsstack"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 OUTPUT_DIR="$ROOT_DIR/outputs"
 OUTPUT_PKG="$OUTPUT_DIR/$APP_NAME.pkg"
@@ -86,20 +89,23 @@ if [[ -f "$OUTPUT_PKG" ]]; then
 fi
 
 cd "$ROOT_DIR"
-swift build -c release
-BUILD_BIN_DIR="$(swift build -c release --show-bin-path)"
+swift build -c release --product "$APP_NAME"
+swift build -c release --product "$CLI_PRODUCT"
+BUILD_BIN_DIR="$(swift build -c release --product "$APP_NAME" --show-bin-path)"
 BUILD_BINARY="$BUILD_BIN_DIR/$APP_NAME"
+BUILD_CLI_BINARY="$BUILD_BIN_DIR/$CLI_PRODUCT"
 RESOURCE_BUNDLE="$BUILD_BIN_DIR/CapsStack_CapsStack.bundle"
 
 rm -rf "$BUILD_DIR"
-mkdir -p "$APP_CONTENTS/MacOS" "$APP_RESOURCES"
+mkdir -p "$APP_CONTENTS/MacOS" "$APP_HELPERS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
+cp "$BUILD_CLI_BINARY" "$CLI_BINARY"
 cp -R "$RESOURCE_BUNDLE" "$APP_RESOURCES/"
 cp "$ROOT_DIR/Packaging/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
 cp "$INFO_PLIST" "$APP_CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_VERSION" "$APP_CONTENTS/Info.plist"
-chmod +x "$APP_BINARY"
+chmod +x "$APP_BINARY" "$CLI_BINARY"
 xattr -cr "$APP_BUNDLE"
 export COPYFILE_DISABLE=1
 

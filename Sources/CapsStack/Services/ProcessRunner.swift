@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// The complete, non-interactive invocation passed to a CLI process.
@@ -93,34 +94,47 @@ final class ProcessRunner: ProcessRunning, @unchecked Sendable {
             process.standardInput = inputPipe
         }
 
+        let state = ProcessRunState()
         return try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ProcessResult, Error>) in
-                let state = ProcessRunState()
+            if Task.isCancelled { throw ProcessRunnerError.cancelled }
+            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<ProcessResult, Error>) in
                 let stdoutCollector = BoundedDataCollector(limit: self.outputLimit)
                 let stderrCollector = BoundedDataCollector(limit: self.outputLimit)
                 let outputGroup = DispatchGroup()
                 let timeoutInterval = max(0.1, timeout)
 
+                // Register and start both bounded readers before launch. This avoids losing output
+                // when a short-lived child exits before the parent has installed its readers.
+                Self.startReader(
+                    outputPipe.fileHandleForReading,
+                    collector: stdoutCollector,
+                    group: outputGroup
+                )
+                Self.startReader(
+                    errorPipe.fileHandleForReading,
+                    collector: stderrCollector,
+                    group: outputGroup
+                )
+
                 process.terminationHandler = { terminatedProcess in
-                    // The readers below drain both pipes while the child is running. Waiting for
-                    // them here is safe because process termination closes the pipe writers.
-                    outputGroup.wait()
+                    // Descendants can inherit stdout/stderr and keep a pipe open after the direct
+                    // child exits. Give normal readers a short drain window, then close our read
+                    // handles so completion can never wait forever on an unrelated descendant.
+                    if outputGroup.wait(timeout: .now() + 1) == .timedOut {
+                        try? outputPipe.fileHandleForReading.close()
+                        try? errorPipe.fileHandleForReading.close()
+                        _ = outputGroup.wait(timeout: .now() + 0.25)
+                    }
                     let stdoutResult = stdoutCollector.snapshot()
                     let stderrResult = stderrCollector.snapshot()
 
-                    state.lock.lock()
-                    guard !state.finished else {
-                        state.lock.unlock()
-                        return
-                    }
-                    state.finished = true
-                    let timedOut = state.timedOut
-                    state.timeoutWorkItem?.cancel()
-                    state.lock.unlock()
-
-                    if timedOut {
+                    guard let completion = state.complete() else { return }
+                    switch completion {
+                    case .timedOut:
                         continuation.resume(throwing: ProcessRunnerError.timedOut)
-                    } else {
+                    case .cancelled:
+                        continuation.resume(throwing: ProcessRunnerError.cancelled)
+                    case .normal:
                         continuation.resume(returning: ProcessResult(
                             terminationStatus: terminatedProcess.terminationStatus,
                             standardOutput: stdoutResult.data,
@@ -132,67 +146,166 @@ final class ProcessRunner: ProcessRunning, @unchecked Sendable {
 
                 do {
                     try process.run()
+                    let pid = process.processIdentifier
+                    if setpgid(pid, pid) == 0 {
+                        state.setProcessGroupID(pid)
+                    }
                 } catch {
-                    state.lock.lock()
-                    state.finished = true
-                    state.lock.unlock()
+                    try? outputPipe.fileHandleForWriting.close()
+                    try? errorPipe.fileHandleForWriting.close()
+                    try? outputPipe.fileHandleForReading.close()
+                    try? errorPipe.fileHandleForReading.close()
+                    guard state.failLaunch() else { return }
                     continuation.resume(throwing: ProcessRunnerError.failedToLaunch(error.localizedDescription))
                     return
-                }
-
-                outputGroup.enter()
-                DispatchQueue.global(qos: .utility).async {
-                    stdoutCollector.store(outputPipe.fileHandleForReading.readDataToEndOfFile())
-                    outputGroup.leave()
-                }
-                outputGroup.enter()
-                DispatchQueue.global(qos: .utility).async {
-                    stderrCollector.store(errorPipe.fileHandleForReading.readDataToEndOfFile())
-                    outputGroup.leave()
                 }
 
                 if let input = specification.standardInput {
                     // Writing on a utility queue prevents a large prompt from blocking the
                     // caller. Closing stdin is essential for CLIs that wait for EOF.
                     DispatchQueue.global(qos: .utility).async {
-                        inputPipe.fileHandleForWriting.write(input)
-                        inputPipe.fileHandleForWriting.closeFile()
+                        defer { try? inputPipe.fileHandleForWriting.close() }
+                        try? inputPipe.fileHandleForWriting.write(contentsOf: input)
                     }
                 }
 
                 let workItem = DispatchWorkItem {
-                    state.lock.lock()
-                    guard !state.finished else {
-                        state.lock.unlock()
-                        return
-                    }
-                    state.timedOut = true
-                    state.lock.unlock()
-                    if process.isRunning {
-                        process.terminate()
-                    }
+                    state.requestTermination(
+                        reason: .timedOut,
+                        process: process,
+                        inputHandle: specification.standardInput == nil
+                            ? nil
+                            : inputPipe.fileHandleForWriting
+                    )
                 }
-                state.lock.lock()
-                state.timeoutWorkItem = workItem
-                state.lock.unlock()
+                state.setTimeoutWorkItem(workItem)
                 DispatchQueue.global(qos: .utility).asyncAfter(
                     deadline: .now() + timeoutInterval,
                     execute: workItem
                 )
+
+                if Task.isCancelled {
+                    state.requestTermination(
+                        reason: .cancelled,
+                        process: process,
+                        inputHandle: specification.standardInput == nil
+                            ? nil
+                            : inputPipe.fileHandleForWriting
+                    )
+                }
             }
         }, onCancel: {
-            if process.isRunning {
-                process.terminate()
-            }
+            state.requestTermination(
+                reason: .cancelled,
+                process: process,
+                inputHandle: specification.standardInput == nil
+                    ? nil
+                    : inputPipe.fileHandleForWriting
+            )
         })
+    }
+
+    private static func startReader(
+        _ handle: FileHandle,
+        collector: BoundedDataCollector,
+        group: DispatchGroup
+    ) {
+        group.enter()
+        DispatchQueue.global(qos: .utility).async {
+            defer { group.leave() }
+            do {
+                while let chunk = try handle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+                    collector.store(chunk)
+                }
+            } catch {
+                // Closing the handle is the bounded escape hatch when a descendant keeps a pipe
+                // alive. Output already collected remains valid and the process result records any
+                // size truncation separately.
+            }
+        }
     }
 }
 
 private final class ProcessRunState: @unchecked Sendable {
+    enum TerminationReason {
+        case timedOut
+        case cancelled
+    }
+
+    enum Completion {
+        case normal
+        case timedOut
+        case cancelled
+    }
+
     let lock = NSLock()
     var finished = false
-    var timedOut = false
+    var terminationReason: TerminationReason?
+    var processGroupID: pid_t?
     var timeoutWorkItem: DispatchWorkItem?
+
+    func setProcessGroupID(_ id: pid_t) {
+        lock.lock()
+        processGroupID = id
+        lock.unlock()
+    }
+
+    func setTimeoutWorkItem(_ item: DispatchWorkItem) {
+        lock.lock()
+        timeoutWorkItem = item
+        let shouldCancel = finished
+        lock.unlock()
+        if shouldCancel { item.cancel() }
+    }
+
+    func requestTermination(
+        reason: TerminationReason,
+        process: Process,
+        inputHandle: FileHandle?
+    ) {
+        lock.lock()
+        if terminationReason == nil { terminationReason = reason }
+        let shouldStop = !finished
+        let groupID = processGroupID
+        lock.unlock()
+        guard shouldStop else { return }
+
+        try? inputHandle?.close()
+        if process.isRunning { process.terminate() }
+
+        let pid = process.processIdentifier
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
+            guard process.isRunning else { return }
+            if groupID == pid {
+                _ = Darwin.kill(-pid, SIGKILL)
+            } else {
+                _ = Darwin.kill(pid, SIGKILL)
+            }
+        }
+    }
+
+    /// Returns nil only when another callback already resumed the task.
+    func complete() -> Completion? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !finished else { return nil }
+        finished = true
+        timeoutWorkItem?.cancel()
+        switch terminationReason {
+        case .timedOut: return .timedOut
+        case .cancelled: return .cancelled
+        case nil: return .normal
+        }
+    }
+
+    func failLaunch() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !finished else { return false }
+        finished = true
+        timeoutWorkItem?.cancel()
+        return true
+    }
 }
 
 private final class BoundedDataCollector: @unchecked Sendable {
