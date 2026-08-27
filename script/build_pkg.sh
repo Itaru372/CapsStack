@@ -74,15 +74,30 @@ package_version() {
   fi
 }
 
+package_contains_cli() {
+  local package_path="$1"
+
+  # `pkgutil --payload-files` accepts a flat package path and prints paths
+  # relative to the install root.  Accept an optional leading `./` as the
+  # output format differs between macOS releases.
+  pkgutil --payload-files "$package_path" 2>/dev/null \
+    | sed 's#^\./##' \
+    | grep -Eq '^(.*/)?CapsStack\.app/Contents/Helpers/capsstack$'
+}
+
 if [[ -f "$OUTPUT_PKG" ]]; then
   EXISTING_VERSION="$(package_version "$OUTPUT_PKG" || true)"
-  if [[ "$EXISTING_VERSION" == "$VERSION" ]]; then
+  if [[ "$EXISTING_VERSION" == "$VERSION" ]] && package_contains_cli "$OUTPUT_PKG"; then
     echo "Already built: $OUTPUT_PKG (version $VERSION)"
     exit 0
   fi
 
   if [[ -n "$EXISTING_VERSION" ]]; then
-    echo "Replacing package version $EXISTING_VERSION with $VERSION"
+    if [[ "$EXISTING_VERSION" == "$VERSION" ]]; then
+      echo "Rebuilding package version $VERSION to include the bundled CLI"
+    else
+      echo "Replacing package version $EXISTING_VERSION with $VERSION"
+    fi
   else
     echo "Replacing an unreadable or legacy package with $VERSION"
   fi
@@ -95,6 +110,11 @@ BUILD_BIN_DIR="$(swift build -c release --product "$APP_NAME" --show-bin-path)"
 BUILD_BINARY="$BUILD_BIN_DIR/$APP_NAME"
 BUILD_CLI_BINARY="$BUILD_BIN_DIR/$CLI_PRODUCT"
 RESOURCE_BUNDLE="$BUILD_BIN_DIR/CapsStack_CapsStack.bundle"
+
+if [[ ! -x "$BUILD_CLI_BINARY" ]]; then
+  echo "CLI build output is missing or not executable: $BUILD_CLI_BINARY" >&2
+  exit 1
+fi
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$APP_CONTENTS/MacOS" "$APP_HELPERS" "$APP_RESOURCES"
@@ -124,6 +144,11 @@ if [[ -n "${DEVELOPER_ID_INSTALLER:-}" ]]; then
   pkgbuild --component "$APP_BUNDLE" --install-location /Applications --identifier "$BUNDLE_ID.pkg" --version "$VERSION" --sign "$DEVELOPER_ID_INSTALLER" "$STAGING_PKG"
 else
   pkgbuild --component "$APP_BUNDLE" --install-location /Applications --identifier "$BUNDLE_ID.pkg" --version "$VERSION" "$STAGING_PKG"
+fi
+
+if ! package_contains_cli "$STAGING_PKG"; then
+  echo "The generated package does not contain CapsStack CLI at Contents/Helpers/capsstack" >&2
+  exit 1
 fi
 
 pkgutil --check-signature "$STAGING_PKG" || true
