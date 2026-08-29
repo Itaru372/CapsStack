@@ -20,7 +20,7 @@ The approved mark is the rounded geometric C-shaped enclosure with:
 
 The mark's geometry is locked. Do not redraw, rotate, skew, outline, add effects, move the status dot, or change the relationship between the enclosure and the three lines.
 
-For the macOS menu bar, use the compact menu-bar mark. Keep the mark monochrome and use its status dot as the phase indicator: Aged Brass for normal operation, system green while away, Petrol Slate while summarizing, and system red on failure. The accessibility label must also include the current state.
+For the macOS menu bar, use the compact menu-bar mark. Keep the enclosure and summary lines monochrome so they follow the menu-bar appearance. Use the circular cutout as the phase indicator: system green while away, Petrol Slate while summarizing, system red on failure, and system gray while idle or disabled. The accessibility label must also include the current state.
 
 ## Color
 
@@ -31,8 +31,11 @@ For the macOS menu bar, use the compact menu-bar mark. Keep the mark monochrome 
 | Aged Brass | `#B89B48` | Normal accent and the mark's status dot |
 | Petrol Slate | `#4F7174` | Returned/completed accent |
 | Bone | `#F7F3EA` | Raised native surfaces and light icon background |
+| Brief Signal | `#C6F24E` | Dark UI selection and app-icon status accent |
 
 Avoid blue-purple gradients, neon cyan, glossy effects, and large saturated color fields. Aged Brass and Petrol Slate are accents; Ink Aubergine and the warm neutrals should dominate.
+
+The dark app-icon treatment is an intentional exception to the warm canvas: use a near-black charcoal tile, an off-white mark, and a larger saturated system-green dot with a charcoal keyline so it remains legible at Dock size. Keep the finish matte and the depth restrained.
 
 State color must never be the only signal. Pair it with an icon, label, or status text.
 

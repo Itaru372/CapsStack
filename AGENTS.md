@@ -108,6 +108,11 @@ printf '%s' '次に行う作業' | swift run capsstack-cli memo set --stdin --js
 - API キー、トークン、秘密鍵、署名証明書、個人のセッションログをコミットしないでください。
 - 履歴・メモの CLI はアプリと同じローカル保存先を使いますが、生ログにはアクセスしません。CLI の read-only コマンドに削除や変更処理を混ぜないでください。
 
+### ユーザー許可（この Mac 環境）
+
+- ユーザーは、この Mac 環境の CapsStack に属するローカルデータについて、依頼達成に必要な範囲で改変・再生成・削除を許可しています。対象と影響を確認できる操作は、個別の再確認なしに実行して構いません。
+- ただし、実行前に対象を特定し、破壊的な操作では復旧可否を確認し、実行内容と結果を最終報告に明記します。この許可はリポジトリ外のデータやシステム全体への操作には拡張しません。
+
 ## テスト方針
 
 - ロジック変更では対応する XCTest を追加・更新します。特に `Tests/CapsStackTests` と `Tests/CapsStackCLITests` の両方に影響する変更を見落とさないでください。
@@ -119,6 +124,7 @@ printf '%s' '次に行う作業' | swift run capsstack-cli memo set --stdin --js
 ## パッケージングと署名
 
 - `script/build_pkg.sh` は同じバージョンの `outputs/CapsStack.pkg` を再生成せず、異なるバージョンの場合だけ置き換えます。出力先や lock の扱いを壊さないでください。
+- CapsStack のコードを変更した場合は、作業完了時に最新版のアプリを `/Applications/CapsStack.app` に反映し、`dist/CapsStack.app`、`build/package/CapsStack.app`、`outputs/CapsStack.pkg` などの重複成果物を削除して、アプリ本体を1つだけ残してください。ソースコード、テスト、`.build` のキャッシュは削除しません。
 - Developer ID 署名時は `DEVELOPER_ID_APPLICATION` と `DEVELOPER_ID_INSTALLER` を環境変数で渡します。値や notarytool の認証情報をソースやログに書き込まないでください。
 - notarization は `NOTARY_PROFILE` を指定して `script/notarize.sh` を実行します。署名・公証は利用可能な証明書とネットワークが必要なため、コード変更の通常テストとは分けて扱います。
 

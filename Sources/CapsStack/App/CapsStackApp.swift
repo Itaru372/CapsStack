@@ -10,6 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let icon = BrandAssets.nsImage(named: "CapsStackAppIcon") {
             NSApp.applicationIconImage = icon
         }
+        // A freshly built bundle can otherwise open behind an older CapsStack instance (or
+        // another app), making the user interact with a stale-looking window.
+        NSApp.activate(ignoringOtherApps: true)
         // Prevent App Nap / automatic termination while monitoring in background.
         // The per-controller ProcessInfo activity handles the actual keep-alive,
         // but disabling sudden termination here avoids the system killing the

@@ -13,6 +13,31 @@ final class ModelTests: XCTestCase {
         XCTAssertFalse(fileName.contains(":"))
     }
 
+    func testSummaryMarkdownExportsEntriesWithoutSummary() {
+        let entry = HistoryEntry(
+            interval: AwayInterval(
+                start: Date(timeIntervalSince1970: 1_700_000_000),
+                end: Date(timeIntervalSince1970: 1_700_000_120)
+            ),
+            status: .pending,
+            sessionCount: 2,
+            sources: [.codex, .claudeCode],
+            collectionIssues: [
+                CollectionIssue(provider: .claudeCode, message: "ログディレクトリがありません")
+            ],
+            errorMessage: "要約CLIがタイムアウトしました。",
+            quickMemo: "復帰後に確認する"
+        )
+
+        let markdown = SummaryMarkdown.document(for: entry)
+
+        XCTAssertTrue(markdown.contains("状態**: 要約待ち"))
+        XCTAssertTrue(markdown.contains("収集元**: Codex CLI, Claude Code CLI"))
+        XCTAssertTrue(markdown.contains("要約CLIがタイムアウトしました。"))
+        XCTAssertTrue(markdown.contains("退席前メモ**: 復帰後に確認する"))
+        XCTAssertTrue(markdown.contains("Claude Code CLI: ログディレクトリがありません"))
+    }
+
     func testBrandAssetsArePackaged() {
         XCTAssertNotNil(BrandAssets.nsImage(named: "CapsStackAppIcon"))
         XCTAssertNotNil(BrandAssets.nsImage(named: "CapsStackMenuBar"))
@@ -59,6 +84,61 @@ final class ModelTests: XCTestCase {
         normalController.reloadHistory()
         XCTAssertEqual(normalController.history.count, 1)
         XCTAssertFalse(normalController.isShowingDemoData)
+    }
+
+    @MainActor
+    func testAppControllerAppliesCapsStackEnabledImmediately() throws {
+        let suiteName = "CapsStackFeatureToggleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let controller = AppController(
+            defaults: defaults,
+            historyStore: HistoryStore(
+                directoryURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent(suiteName, isDirectory: true)
+            ),
+            notifications: EmptyNotificationService()
+        )
+
+        XCTAssertTrue(controller.isCapsStackEnabled)
+        controller.setCapsStackEnabled(false)
+        XCTAssertFalse(controller.isCapsStackEnabled)
+        XCTAssertEqual(controller.phase, .disabled)
+
+        controller.setCapsStackEnabled(true)
+        XCTAssertTrue(controller.isCapsStackEnabled)
+        XCTAssertEqual(controller.phase, .idle)
+    }
+
+    @MainActor
+    func testProviderTestCanBeCancelledWithoutLeavingBusyState() async throws {
+        let suiteName = "CapsStackProviderTestCancellation.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let controller = AppController(
+            defaults: defaults,
+            resolver: TestCLIResolver(),
+            runner: BlockingProcessRunner(),
+            historyStore: HistoryStore(
+                directoryURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent(suiteName, isDirectory: true)
+            ),
+            notifications: EmptyNotificationService()
+        )
+
+        controller.startProviderTest(.codex)
+        for _ in 0..<100 {
+            if controller.testingProvider != nil { break }
+            await Task.yield()
+        }
+        XCTAssertEqual(controller.testingProvider, .codex)
+
+        controller.cancelProviderTest()
+        XCTAssertNil(controller.testingProvider)
+        XCTAssertEqual(controller.providerTestMessages[.codex], "キャンセルしました")
+        await Task.yield()
     }
 
     func testCollectorAndSummarizerPreferencesAreIndependent() throws {
@@ -191,6 +271,40 @@ final class ModelTests: XCTestCase {
         }
         """.data(using: .utf8)!
         XCTAssertEqual(try decoder.decode(CollectionBatch.self, from: json).quickMemo, "GUIエージェントのメモ")
+    }
+}
+
+private struct TestCLIResolver: CLIResolving {
+    func executableURL(for kind: CLIKind, override: String?) -> URL? {
+        URL(fileURLWithPath: "/usr/bin/true")
+    }
+
+    func status(for kind: CLIKind, override: String?) -> CLIStatus {
+        CLIStatus(
+            kind: kind,
+            executablePath: "/usr/bin/true",
+            version: "test",
+            logDirectory: "/tmp",
+            canReadLogs: true
+        )
+    }
+
+    func logDirectory(for kind: CLIKind) -> URL {
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+    }
+}
+
+private final class BlockingProcessRunner: ProcessRunning, @unchecked Sendable {
+    func run(_ specification: ProcessSpecification, timeout: TimeInterval) async throws -> ProcessResult {
+        try await Task.sleep(nanoseconds: 10_000_000_000)
+        return ProcessResult(
+            terminationStatus: 0,
+            standardOutput: Data(
+                #"{"overview":"test","progress":[],"currentState":[],"decisions":[],"blockers":[],"nextSteps":[],"sessions":[]}"#.utf8
+            ),
+            standardError: Data(),
+            didTruncateOutput: false
+        )
     }
 }
 

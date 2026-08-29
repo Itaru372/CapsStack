@@ -31,6 +31,7 @@ struct HistoryView: View {
                         entry: entry,
                         message: exportMessage,
                         retry: { controller.retry(entry) },
+                        canRetry: canRetry(entry),
                         copy: { copy(entry) },
                         export: { export(entry) },
                         delete: { entryPendingDeletion = entry }
@@ -90,6 +91,12 @@ struct HistoryView: View {
                 selectNewestEntry(in: entries)
             }
         }
+        .onChange(of: selection) { _, _ in
+            // A success/error message belongs to the action on the previously selected row.
+            // Clear it when navigating so a newly selected entry never looks as if its copy or
+            // export action already completed.
+            exportMessage = nil
+        }
     }
 
     private var header: some View {
@@ -140,30 +147,37 @@ struct HistoryView: View {
     }
 
     private func copy(_ entry: HistoryEntry) {
-        guard let summary = entry.summary else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(
-            SummaryMarkdown.document(summary, entry: entry),
+            SummaryMarkdown.document(for: entry),
             forType: .string
         )
-        exportMessage = "コピーしました"
+        exportMessage = entry.summary == nil ? "履歴の状態をコピーしました" : "コピーしました"
     }
 
     private func export(_ entry: HistoryEntry) {
-        guard let summary = entry.summary else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
         panel.nameFieldStringValue = HistoryExportNaming.fileName(for: entry.interval.start)
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             do {
-                try SummaryMarkdown.document(summary, entry: entry)
+                try SummaryMarkdown.document(for: entry)
                     .write(to: url, atomically: true, encoding: .utf8)
-                exportMessage = "保存しました"
+                exportMessage = entry.summary == nil ? "履歴の状態を保存しました" : "保存しました"
             } catch {
                 exportMessage = "保存できませんでした"
             }
         }
+    }
+
+    private func canRetry(_ entry: HistoryEntry) -> Bool {
+        controller.isCapsStackEnabled
+            && controller.phase != .summarizing
+            && controller.phase != .away
+            && controller.phase != .disabled
+            && entry.status == .pending
+            && entry.pendingArtifactID != nil
     }
 
     private func shiftMonth(_ direction: Int) {
@@ -307,6 +321,7 @@ private struct SessionHeaderCard: View {
     let entry: HistoryEntry
     let message: String?
     let retry: () -> Void
+    let canRetry: Bool
     let copy: () -> Void
     let export: () -> Void
     let delete: () -> Void
@@ -333,7 +348,7 @@ private struct SessionHeaderCard: View {
             Button {
                 copy()
             } label: {
-                Label("コピー", systemImage: "doc.on.doc")
+                Label(entry.summary == nil ? "状態をコピー" : "コピー", systemImage: "doc.on.doc")
             }
             .buttonStyle(.borderedProminent)
 
@@ -341,6 +356,7 @@ private struct SessionHeaderCard: View {
                 Button("Markdown書き出し", action: export)
                 if entry.status == .pending {
                     Button("再要約", action: retry)
+                        .disabled(!canRetry)
                 }
                 Divider()
                 Button("削除", role: .destructive, action: delete)

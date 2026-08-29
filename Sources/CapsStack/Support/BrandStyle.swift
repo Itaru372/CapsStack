@@ -89,7 +89,11 @@ enum BrandAssets {
         return NSImage(contentsOf: url)
     }
 
-    static func menuBarImage(indicatorColor: NSColor, displaySize: CGFloat = 18) -> NSImage? {
+    static func menuBarImage(
+        indicatorColor: NSColor,
+        glyphColor: NSColor,
+        displaySize: CGFloat = 18
+    ) -> NSImage? {
         guard let source = nsImage(named: "CapsStackMenuBar") else {
             return nil
         }
@@ -103,6 +107,8 @@ enum BrandAssets {
             operation: .sourceOver,
             fraction: 1
         )
+        glyphColor.setFill()
+        NSRect(origin: .zero, size: imageSize).fill(using: .sourceIn)
 
         let indicatorDiameter = imageSize.width * 0.125
         let indicatorRect = NSRect(
@@ -137,11 +143,13 @@ struct BrandAppIcon: View {
 struct BrandMenuBarIcon: View {
     let indicatorColor: NSColor
     var size: CGFloat = 26
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
             if let image = BrandAssets.menuBarImage(
                 indicatorColor: indicatorColor,
+                glyphColor: colorScheme == .dark ? .white : .black,
                 displaySize: size
             ) {
                 Image(nsImage: image)
@@ -170,7 +178,7 @@ extension AppPhase {
 
     var menuBarIndicatorColor: NSColor {
         switch self {
-        case .idle: BrandPalette.agedBrassNS
+        case .idle: .systemGray
         case .away: .systemGreen
         case .summarizing: BrandPalette.petrolSlateNS
         case .failed: .systemRed

@@ -15,6 +15,9 @@ final result: passed
 - The dark history surface opens as a regular macOS window at launch.
 - August date cards show per-day session counts, durations, activity bars, and selected state.
 - The selected interval card shows start/end time, total duration, session count, copy action, export/retry/delete actions, and brief metadata.
+- Copy and Markdown export remain useful for pending or empty intervals by exporting their state,
+  diagnostics, and memo; retry is visibly unavailable while CapsStack is disabled or another
+  workflow is running.
 - The large 復帰ブリーフ heading is followed by compact 進捗 / 決定 / 次の一手 sections.
 - Supplemental current-state, blocker, memo, collection-issue, creation-time, model, fallback, and character-count data remain available without inventing per-section CLI timing that the summary model does not provide.
 
@@ -23,7 +26,9 @@ final result: passed
 - The fixed-width dark sidebar contains 収集元, 要約担当, 一般, 通知, ホットキー, データ管理, and 詳細設定.
 - The search field filters categories and keeps the detail pane synchronized with the visible selection.
 - Collector rows preserve independent toggles plus runtime log-directory/readability status.
-- Summary assignment, automatic fallback, general feature/background/accessibility controls, notification authorization, built-in shortcuts, local-data management, executable overrides, model overrides, reasoning overrides, and provider tests remain functional.
+- Each collector card is a full-width toggle target, and provider tests show an in-progress state,
+  prevent competing tests, expose a cancel action, and keep the result visible after completion.
+- Summary assignment, automatic fallback, general feature/background/accessibility controls, notification authorization/system-settings handoff, built-in shortcuts, local-data management, executable overrides, model overrides, reasoning overrides, and provider tests remain functional.
 
 ### Native chrome
 
@@ -40,7 +45,7 @@ The demo history is opt-in and memory-only. It is enabled for this local verific
 ## Verification
 
 - `swift build --product CapsStack -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` passed.
-- `swift test` passed: 57 tests, 0 failures. This includes controller end-to-end success/failure/empty-source/manual-away flows, corrupted history, bounded process I/O and timeout termination, summary fallback/chunk limits, UTF-8 limits, portable export naming, and view rendering.
+- `swift test` passed: 59 tests, 0 failures. This includes controller end-to-end success/failure/empty-source/manual-away flows, corrupted history, bounded process I/O and timeout termination, summary fallback/chunk limits, UTF-8 limits, portable export naming, and view rendering.
 - `CAPSSTACK_DEMO_DATA=1 ./script/build_and_run.sh --verify` built and launched the packaged app successfully.
 - The development app bundle and the app staged for the isolated Release package passed deep code-signature verification. The unsigned test PKG contains the app, bundled `capsstack` helper, icon, resource bundle, and Info.plist; Developer ID signing/notarization requires external identities.
 - Real isolated Codex execution and OpenCode session collection succeeded. OpenCode summary invocation reached the configured provider and reported its unavailable local endpoint rather than hanging or corrupting history.

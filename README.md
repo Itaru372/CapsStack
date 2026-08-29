@@ -1,6 +1,30 @@
 # CapsStack
 
-Caps LockをONにしている間を「退席」とみなし、Codex CLI / Claude Code CLI / OpenCode / Piのセッション記録を収集して、選択したCLIとモデルで復帰時に要約するmacOSアプリです。ネイティブメニューバー、履歴ウィンドウ、退席前メモウィンドウ、設定ウィンドウを備えます。
+> **Step away. Come back caught up.**
+
+CapsStackは、AIコーディングエージェントへ作業を任せて席を離れたあと、戻った瞬間に状況へ追いつくためのmacOSアプリです。Codex CLI / Claude Code CLI / OpenCode / Piのセッションを、進捗・判断・ブロッカー・次の一手が分かる「復帰ブリーフ」にまとめます。
+
+AIを速くするのではなく、**人間がAIの作業状態へ戻るまでの時間を短くする**ためのツールです。
+
+## 使い方
+
+1. AIエージェントへ作業を任せ、離席するときにCaps LockをON
+2. CodexやClaude Codeなどが作業している間、その場を離れる
+3. 戻ってCaps LockをOFFにすると、離席中のセッションから復帰ブリーフを生成
+
+```text
+Caps Lock ON   →   Step away   →   Agents keep working
+Caps Lock OFF  →   Return brief: progress / decisions / blockers / next steps
+```
+
+## こんな人向け
+
+- MacでCodex CLIやClaude Codeへ数分〜数十分のタスクを任せる
+- 複数のターミナル型コーディングエージェントを使い分ける
+- 離席後、長い会話ログやGit diffを読む前に現在地を把握したい
+- エージェントが「何をしたか」だけでなく「次に何をすべきか」を知りたい
+
+CapsStackが直接収集するのはターミナル型エージェントのセッションです。ChatGPTデスクトップアプリやCursorなどのGUI作業は直接収集せず、退席前メモで復帰ブリーフへ補足できます。
 
 ## 特徴
 

@@ -39,6 +39,9 @@ final class AppController: ObservableObject {
     /// The currently running collection/summary workflow, if any. Keeping one handle lets
     /// settings/history actions cancel stale work before it can publish a late state update.
     private var activeWorkflowTask: Task<Void, Never>?
+    /// Keeps the long-running provider test cancellable from the settings UI.
+    private var providerTestTask: Task<Void, Never>?
+    private var providerTestGeneration: UInt = 0
     private var workflowGeneration: UInt = 0
     private var isRefreshingCLIStatuses = false
     private var backgroundActivity: NSObjectProtocol?
@@ -145,6 +148,13 @@ final class AppController: ObservableObject {
 
     func setCapsStackEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: PreferenceKeys.capsStackEnabled)
+        guard isCapsStackEnabled != enabled else { return }
+
+        // Settings writes are normally observed through UserDefaults.didChangeNotification, but
+        // updating the published state synchronously keeps the toggle and menu-bar status in
+        // lockstep even when the Settings scene is the first scene to mutate this preference.
+        isCapsStackEnabled = enabled
+        refreshEnabledState()
     }
 
     func setKeepRunningInBackground(_ enabled: Bool) {
@@ -159,6 +169,12 @@ final class AppController: ObservableObject {
 
     func openAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func openNotificationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings") {
             NSWorkspace.shared.open(url)
         }
     }
@@ -239,6 +255,17 @@ final class AppController: ObservableObject {
     }
 
     func revealHistoryFolder() {
+        // The folder is lazily created on the first history write. Create it here as well so the
+        // first-use "表示" button always has a concrete location to reveal.
+        do {
+            try FileManager.default.createDirectory(
+                at: historyDirectoryURL,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            lastError = error.localizedDescription
+            return
+        }
         NSWorkspace.shared.activateFileViewerSelecting([historyDirectoryURL])
     }
 
@@ -295,11 +322,43 @@ final class AppController: ObservableObject {
         cliStatuses = refreshed
     }
 
+    func startProviderTest(_ kind: CLIKind) {
+        guard testingProvider == nil else { return }
+        providerTestGeneration &+= 1
+        let generation = providerTestGeneration
+        providerTestTask = Task { [weak self] in
+            await self?.performProviderTest(kind, generation: generation)
+        }
+    }
+
+    func cancelProviderTest() {
+        guard testingProvider != nil else { return }
+        providerTestGeneration &+= 1
+        providerTestTask?.cancel()
+        providerTestTask = nil
+        if let kind = testingProvider {
+            providerTestMessages[kind] = "キャンセルしました"
+        }
+        testingProvider = nil
+    }
+
     func testProvider(_ kind: CLIKind) async {
         guard testingProvider == nil else { return }
+        providerTestGeneration &+= 1
+        await performProviderTest(kind, generation: providerTestGeneration)
+    }
+
+    private func performProviderTest(_ kind: CLIKind, generation: UInt) async {
+        guard isCurrentProviderTest(generation) else { return }
+        guard testingProvider == nil else { return }
         testingProvider = kind
-        providerTestMessages[kind] = nil
-        defer { testingProvider = nil }
+        providerTestMessages[kind] = "確認中..."
+        defer {
+            if isCurrentProviderTest(generation) {
+                testingProvider = nil
+                providerTestTask = nil
+            }
+        }
 
         let now = Date()
         let sample = CollectionBatch(
@@ -330,11 +389,18 @@ final class AppController: ObservableObject {
                 modelOverrides: preferences.modelOverrides,
                 reasoningOverrides: preferences.reasoningOverrides
             )
+            guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
             providerTestMessages[kind] = "成功"
         } catch {
+            guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
             providerTestMessages[kind] = "失敗: \(error.localizedDescription)"
         }
+        guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
         await refreshCLIStatuses()
+    }
+
+    private func isCurrentProviderTest(_ generation: UInt) -> Bool {
+        providerTestGeneration == generation
     }
 
     private func handleCapsLock(isOn: Bool) {

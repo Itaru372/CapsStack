@@ -31,15 +31,16 @@ struct MenuBarView: View {
     }
 
     var body: some View {
-        Button(action: {}) {
-            Label(controller.stateTitle, systemImage: controller.phase.menuSystemImage)
+        Label {
+            Text(controller.stateTitle)
+        } icon: {
+            Image(systemName: controller.phase.menuSystemImage)
         }
-        .disabled(true)
         .accessibilityLabel("CapsStackの状態: \(controller.stateTitle)")
 
         if let notice {
-            Button(notice, action: {})
-                .disabled(true)
+            Text(notice)
+                .foregroundStyle(.secondary)
         }
 
         Divider()

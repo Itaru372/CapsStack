@@ -56,12 +56,10 @@ struct SettingsView: View {
                 .fill(BrandPalette.BriefTheme.border)
                 .frame(width: 1)
 
-            ScrollView {
-                detail
-                    .padding(26)
-                    .frame(maxWidth: 780, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
+            detail
+                .padding(26)
+                .frame(maxWidth: 780, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(BrandPalette.BriefTheme.canvas.ignoresSafeArea())
         .preferredColorScheme(.dark)
@@ -88,28 +86,36 @@ struct SettingsView: View {
         }
     }
 
-    @AppStorage(PreferenceKeys.keepRunningInBackground) private var keepRunningInBackground = true
-
     @ViewBuilder
     private var detail: some View {
         switch selectedSection {
         case .collectors:
-            CollectorSettingsView(controller: controller, searchText: searchText)
+            SettingsScrollView {
+                CollectorSettingsView(controller: controller, searchText: searchText)
+            }
         case .summarizers:
             SummarizerSettingsView(controller: controller)
         case .general:
             GeneralSettingsView(controller: controller, launchAtLogin: launchAtLogin)
         case .notifications:
-            NotificationSettingsView(controller: controller)
+            SettingsScrollView {
+                NotificationSettingsView(controller: controller)
+            }
         case .hotkeys:
-            HotkeySettingsView()
+            SettingsScrollView {
+                HotkeySettingsView()
+            }
         case .data:
-            DataManagementSettingsView(
-                controller: controller,
-                showsClearConfirmation: $showsClearHistoryConfirmation
-            )
+            SettingsScrollView {
+                DataManagementSettingsView(
+                    controller: controller,
+                    showsClearConfirmation: $showsClearHistoryConfirmation
+                )
+            }
         case .advanced:
-            AdvancedSummarizerSettingsView(controller: controller)
+            SettingsScrollView {
+                AdvancedSummarizerSettingsView(controller: controller)
+            }
         }
     }
 
@@ -120,6 +126,19 @@ struct SettingsView: View {
         return SettingsSection.allCases.filter { section in
             section.searchKeywords.localizedCaseInsensitiveContains(searchText)
                 || section.title.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+}
+
+/// Custom settings pages need scrolling, while `Form` pages already own their native scroll
+/// view. Keeping only one vertical scroll container per page avoids a transparent nested
+/// `NSScrollView` intercepting clicks on controls such as toggles and text fields.
+private struct SettingsScrollView<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ScrollView {
+            content()
         }
     }
 }
@@ -230,29 +249,32 @@ private struct CollectorSettingsView: View {
     @ViewBuilder
     private func collectorRow(kind: CLIKind, isOn: Binding<Bool>) -> some View {
         if matches(kind) {
-            HStack(spacing: 14) {
-                Image(systemName: kind.systemImage)
-                    .font(.system(size: 16))
-                    .frame(width: 34, height: 34)
-                    .background(BrandPalette.BriefTheme.signal.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            Toggle(isOn: isOn) {
+                HStack(spacing: 14) {
+                    Image(systemName: kind.systemImage)
+                        .font(.system(size: 16))
+                        .frame(width: 34, height: 34)
+                        .background(BrandPalette.BriefTheme.signal.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(kind.displayName)
-                        .font(.headline)
-                    statusText(for: kind)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(kind.displayName)
+                            .font(.headline)
+                        statusText(for: kind)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 12)
                 }
-
-                Spacer(minLength: 12)
-
-                Toggle("", isOn: isOn)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
             }
+            .toggleStyle(.switch)
+            .accessibilityLabel("\(kind.displayName)の収集")
+            .accessibilityValue(isOn.wrappedValue ? "オン" : "オフ")
             .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 11))
             .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 11))
+            .contentShape(Rectangle())
         }
     }
 
@@ -308,7 +330,13 @@ private struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section("CapsStack") {
-                Toggle("CapsStack機能を有効にする", isOn: $capsStackEnabled)
+                Toggle("CapsStack機能を有効にする", isOn: Binding(
+                    get: { capsStackEnabled },
+                    set: { newValue in
+                        capsStackEnabled = newValue
+                        controller.setCapsStackEnabled(newValue)
+                    }
+                ))
                 Stepper("最短退席時間: \(minimumAwaySeconds)秒", value: $minimumAwaySeconds, in: 0...3600, step: 5)
             }
 
@@ -380,6 +408,10 @@ private struct NotificationSettingsView: View {
                 if controller.isNotificationAuthorized == true {
                     Label("許可済み", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(BrandPalette.BriefTheme.signal)
+                } else if controller.isNotificationAuthorized == false {
+                    Button("システム設定を開く") {
+                        controller.openNotificationSettings()
+                    }
                 } else {
                     Button("許可を要求") {
                         Task { await controller.requestNotificationAuthorization() }
@@ -540,39 +572,37 @@ private struct AdvancedSummarizerSettingsView: View {
     @AppStorage(PreferenceKeys.piReasoning) private var piReasoning = ""
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                SettingsHeader(title: "詳細設定", message: "各CLIの実行ファイル、モデル、推論強度を指定できます。")
+        VStack(alignment: .leading, spacing: 22) {
+            SettingsHeader(title: "詳細設定", message: "各CLIの実行ファイル、モデル、推論強度を指定できます。")
 
-                ExecutableRow(
-                    kind: .codex,
-                    path: $codexPath,
-                    model: $codexModel,
-                    reasoning: $codexReasoning,
-                    controller: controller
-                )
-                ExecutableRow(
-                    kind: .claudeCode,
-                    path: $claudePath,
-                    model: $claudeModel,
-                    reasoning: $claudeReasoning,
-                    controller: controller
-                )
-                ExecutableRow(
-                    kind: .opencode,
-                    path: $opencodePath,
-                    model: $opencodeModel,
-                    reasoning: $opencodeReasoning,
-                    controller: controller
-                )
-                ExecutableRow(
-                    kind: .pi,
-                    path: $piPath,
-                    model: $piModel,
-                    reasoning: $piReasoning,
-                    controller: controller
-                )
-            }
+            ExecutableRow(
+                kind: .codex,
+                path: $codexPath,
+                model: $codexModel,
+                reasoning: $codexReasoning,
+                controller: controller
+            )
+            ExecutableRow(
+                kind: .claudeCode,
+                path: $claudePath,
+                model: $claudeModel,
+                reasoning: $claudeReasoning,
+                controller: controller
+            )
+            ExecutableRow(
+                kind: .opencode,
+                path: $opencodePath,
+                model: $opencodeModel,
+                reasoning: $opencodeReasoning,
+                controller: controller
+            )
+            ExecutableRow(
+                kind: .pi,
+                path: $piPath,
+                model: $piModel,
+                reasoning: $piReasoning,
+                controller: controller
+            )
         }
     }
 }
@@ -598,14 +628,35 @@ private struct ExecutableRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    if let testMessage = controller.providerTestMessages[kind] {
+                        Text(testMessage)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(testMessageColor(testMessage))
+                            .lineLimit(1)
+                    }
                 }
 
                 Spacer()
 
-                Button("テスト") {
-                    Task { await controller.testProvider(kind) }
+                Button {
+                    if controller.testingProvider == kind {
+                        controller.cancelProviderTest()
+                    } else {
+                        controller.startProviderTest(kind)
+                    }
+                } label: {
+                    if controller.testingProvider == kind {
+                        Label("キャンセル", systemImage: "xmark")
+                    } else {
+                        Text("テスト")
+                    }
                 }
-                .disabled(controller.testingProvider == kind)
+                .disabled(controller.testingProvider != nil && controller.testingProvider != kind)
+                .accessibilityLabel(
+                    controller.testingProvider == kind
+                        ? "\(kind.displayName)の接続テストをキャンセル"
+                        : "\(kind.displayName)の接続テスト"
+                )
 
                 Button(isExpanded ? "閉じる" : "詳細") {
                     withAnimation(.easeOut(duration: 0.18)) { isExpanded.toggle() }
@@ -625,7 +676,7 @@ private struct ExecutableRow: View {
                 if let testMessage = controller.providerTestMessages[kind] {
                     Text(testMessage)
                         .font(.caption)
-                        .foregroundStyle(testMessage.hasPrefix("成功") ? BrandPalette.BriefTheme.signal : Color.red)
+                        .foregroundStyle(testMessageColor(testMessage))
                 }
             }
         }
@@ -643,5 +694,13 @@ private struct ExecutableRow: View {
             return status.version ?? status.executablePath ?? "検出済み"
         }
         return "未検出"
+    }
+
+    private func testMessageColor(_ message: String) -> Color {
+        switch message {
+        case "成功": BrandPalette.BriefTheme.signal
+        case "確認中...", "キャンセルしました": .secondary
+        default: .red
+        }
     }
 }
