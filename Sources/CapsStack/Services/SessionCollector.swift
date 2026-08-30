@@ -22,6 +22,38 @@ struct SessionCollectorFactory {
                 rootDirectory: rootDirectory,
                 executableURL: resolver.executableURL(for: kind, override: nil)
             )
+        case .kiloCode:
+            return OpenCodeSessionCollector(
+                provider: kind,
+                rootDirectory: rootDirectory,
+                executableURL: resolver.executableURL(for: kind, override: nil),
+                // Kilo defaults to the current project. The collector runs from the data
+                // directory, so request every local project explicitly.
+                listArguments: ["session", "list", "--all", "--format", "json"],
+                exportArguments: { ["export", $0] },
+                allowsFileFallback: false
+            )
+        case .goose:
+            return OpenCodeSessionCollector(
+                provider: kind,
+                rootDirectory: rootDirectory,
+                executableURL: resolver.executableURL(for: kind, override: nil),
+                listArguments: ["session", "list", "--format", "json"],
+                exportArguments: {
+                    ["session", "export", "--session-id", $0, "--format", "json"]
+                },
+                allowsFileFallback: false
+            )
+        case .githubCopilot:
+            return GitHubCopilotSessionCollector(rootDirectory: rootDirectory)
+        case .qwenCode:
+            // Qwen's runtime root also contains settings, credentials, and other JSON state.
+            // Only its documented current/legacy transcript directories are session inputs.
+            return JSONLSessionCollector(
+                provider: kind,
+                rootDirectory: rootDirectory,
+                allowedTopLevelDirectories: ["projects", "tmp"]
+            )
         default:
             return JSONLSessionCollector(provider: kind, rootDirectory: rootDirectory)
         }

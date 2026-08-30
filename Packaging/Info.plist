@@ -30,5 +30,10 @@
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <!-- Optional public PostHog project configuration. Empty means telemetry is unavailable. -->
+    <key>CapsStackPostHogProjectToken</key>
+    <string></string>
+    <key>CapsStackPostHogHost</key>
+    <string>https://us.i.posthog.com</string>
 </dict>
 </plist>

@@ -180,12 +180,12 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 
     var searchKeywords: String {
         switch self {
-        case .collectors: "Codex Claude OpenCode Pi 収集 ログ 接続"
+        case .collectors: "Codex Claude OpenCode Pi GitHub Copilot Kilo Goose Qwen Continue Gemini 収集 ログ 接続"
         case .summarizers: "要約 CLI モデル fallback フォールバック signal"
         case .general: "Caps Lock 起動 常駐 アクセシビリティ 退席"
         case .notifications: "許可 通知 alert サウンド"
         case .hotkeys: "ショートカット command 履歴 設定 終了"
-        case .data: "履歴 削除 バックアップ フォルダ メモ"
+        case .data: "履歴 削除 バックアップ フォルダ メモ プライバシー"
         case .advanced: "実行ファイル パス reasoning effort variant thinking"
         }
     }
@@ -211,10 +211,17 @@ private struct SettingsHeader: View {
 private struct CollectorSettingsView: View {
     @ObservedObject var controller: AppController
     let searchText: String
-    @AppStorage(PreferenceKeys.collectCodex) private var collectCodex = true
-    @AppStorage(PreferenceKeys.collectClaude) private var collectClaude = true
+    @AppStorage(PreferenceKeys.collectCodex) private var collectCodex = false
+    @AppStorage(PreferenceKeys.collectClaude) private var collectClaude = false
     @AppStorage(PreferenceKeys.collectOpenCode) private var collectOpenCode = false
     @AppStorage(PreferenceKeys.collectPi) private var collectPi = false
+    @AppStorage(PreferenceKeys.collectGitHubCopilot) private var collectGitHubCopilot = false
+    @AppStorage(PreferenceKeys.collectKilo) private var collectKilo = false
+    @AppStorage(PreferenceKeys.collectGoose) private var collectGoose = false
+    @AppStorage(PreferenceKeys.collectQwen) private var collectQwen = false
+    @AppStorage(PreferenceKeys.collectContinue) private var collectContinue = false
+    @AppStorage(PreferenceKeys.collectGemini) private var collectGemini = false
+    @State private var showsUnavailableCollectors = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -224,13 +231,26 @@ private struct CollectorSettingsView: View {
             )
 
             VStack(spacing: 10) {
-                collectorRow(kind: .codex, isOn: $collectCodex)
-                collectorRow(kind: .claudeCode, isOn: $collectClaude)
-                collectorRow(kind: .opencode, isOn: $collectOpenCode)
-                collectorRow(kind: .pi, isOn: $collectPi)
+                ForEach(primaryCollectorKinds) { kind in
+                    collectorRow(kind: kind, isOn: binding(for: kind))
+                }
+
+                if !unavailableCollectorKinds.isEmpty {
+                    DisclosureGroup("未検出のエージェント（\(unavailableCollectorKinds.count)）", isExpanded: $showsUnavailableCollectors) {
+                        VStack(spacing: 10) {
+                            ForEach(unavailableCollectorKinds) { kind in
+                                collectorRow(kind: kind, isOn: binding(for: kind))
+                            }
+                        }
+                        .padding(.top, 10)
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                }
             }
 
-            if ![collectCodex, collectClaude, collectOpenCode, collectPi].contains(true) {
+            if !CLIKind.collectorCases.contains(where: isEnabled) {
                 Label("収集元が選択されていません", systemImage: "exclamationmark.triangle")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(Color.orange)
@@ -239,6 +259,51 @@ private struct CollectorSettingsView: View {
                     .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 10))
             }
         }
+    }
+
+    private var primaryCollectorKinds: [CLIKind] {
+        CLIKind.collectorCases.filter { kind in
+            isEnabled(kind) || controller.cliStatuses[kind].map { $0.isInstalled || $0.canReadLogs } == true
+        }
+    }
+
+    private var unavailableCollectorKinds: [CLIKind] {
+        CLIKind.collectorCases.filter { !primaryCollectorKinds.contains($0) }
+    }
+
+    private func isEnabled(_ kind: CLIKind) -> Bool {
+        switch kind {
+        case .codex: collectCodex
+        case .claudeCode: collectClaude
+        case .opencode: collectOpenCode
+        case .pi: collectPi
+        case .githubCopilot: collectGitHubCopilot
+        case .kiloCode: collectKilo
+        case .goose: collectGoose
+        case .qwenCode: collectQwen
+        case .continueCLI: collectContinue
+        case .geminiCLI: collectGemini
+        }
+    }
+
+    private func binding(for kind: CLIKind) -> Binding<Bool> {
+        Binding(
+            get: { isEnabled(kind) },
+            set: { enabled in
+                switch kind {
+                case .codex: collectCodex = enabled
+                case .claudeCode: collectClaude = enabled
+                case .opencode: collectOpenCode = enabled
+                case .pi: collectPi = enabled
+                case .githubCopilot: collectGitHubCopilot = enabled
+                case .kiloCode: collectKilo = enabled
+                case .goose: collectGoose = enabled
+                case .qwenCode: collectQwen = enabled
+                case .continueCLI: collectContinue = enabled
+                case .geminiCLI: collectGemini = enabled
+                }
+            }
+        )
     }
 
     private func matches(_ kind: CLIKind) -> Bool {
@@ -251,10 +316,7 @@ private struct CollectorSettingsView: View {
         if matches(kind) {
             Toggle(isOn: isOn) {
                 HStack(spacing: 14) {
-                    Image(systemName: kind.systemImage)
-                        .font(.system(size: 16))
-                        .frame(width: 34, height: 34)
-                        .background(BrandPalette.BriefTheme.signal.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    AgentArtwork(kind: kind)
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text(kind.displayName)
@@ -290,14 +352,23 @@ private struct CollectorSettingsView: View {
 
 private struct SummarizerSettingsView: View {
     @ObservedObject var controller: AppController
-    @AppStorage(PreferenceKeys.primarySummarizer) private var primaryRaw = CLIKind.codex.rawValue
+    @AppStorage(PreferenceKeys.primarySummarizer) private var primaryRaw = ""
     @AppStorage(PreferenceKeys.automaticFallback) private var automaticFallback = true
+    @AppStorage(PreferenceKeys.codexModel) private var codexModel = ""
+    @AppStorage(PreferenceKeys.claudeModel) private var claudeModel = ""
+    @AppStorage(PreferenceKeys.opencodeModel) private var opencodeModel = ""
+    @AppStorage(PreferenceKeys.piModel) private var piModel = ""
+    @AppStorage(PreferenceKeys.copilotModel) private var copilotModel = ""
+    @AppStorage(PreferenceKeys.kiloModel) private var kiloModel = ""
+    @AppStorage(PreferenceKeys.gooseModel) private var gooseModel = ""
+    @AppStorage(PreferenceKeys.qwenModel) private var qwenModel = ""
+    @State private var showsUnavailableSummarizers = false
 
     var body: some View {
         Form {
             Section("復帰ブリーフの生成") {
                 Picker("担当CLI", selection: $primaryRaw) {
-                    ForEach(CLIKind.allCases) { kind in
+                    ForEach(displayedSummarizerKinds) { kind in
                         HStack {
                             Label(kind.displayName, systemImage: kind.systemImage)
                             if kind == .codex {
@@ -311,21 +382,118 @@ private struct SummarizerSettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
 
+                if !unavailableSummarizerKinds.isEmpty {
+                    Button(showsUnavailableSummarizers ? "未検出のCLIを隠す" : "未検出のCLIも表示") {
+                        showsUnavailableSummarizers.toggle()
+                    }
+                    .buttonStyle(.link)
+                }
+
+                if let selectedKind, controller.cliStatuses[selectedKind]?.isInstalled == false {
+                    Label("選択中のCLIは未検出です。実行ファイルを詳細設定で指定できます。", systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(Color.orange)
+                }
+
+                if displayedSummarizerKinds.isEmpty {
+                    Label("利用可能な要約CLIがありません。Codex、Claude Code、OpenCode、Piのいずれかをインストールするか、詳細設定で実行ファイルを指定してください。", systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(Color.orange)
+                }
+
+                if let selectedKind {
+                    TextField(selectedKind.modelHint, text: modelBinding(for: selectedKind))
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("\(selectedKind.displayName)のモデル")
+                }
+
                 Toggle("失敗時に別のCLIへ切り替える", isOn: $automaticFallback)
             }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+        .onAppear {
+            normalizePrimaryIfNeeded()
+        }
+        .onChange(of: controller.cliStatuses) { _, _ in
+            normalizePrimaryIfNeeded()
+        }
+    }
+
+    private var selectedKind: CLIKind? {
+        let kind = CLIKind(rawValue: primaryRaw)
+        return kind?.supportsSummarization == true ? kind : nil
+    }
+
+    private var availableSummarizerKinds: [CLIKind] {
+        CLIKind.summarizerCases.filter { controller.cliStatuses[$0]?.isInstalled == true }
+    }
+
+    private var unavailableSummarizerKinds: [CLIKind] {
+        CLIKind.summarizerCases.filter { !availableSummarizerKinds.contains($0) }
+    }
+
+    private var displayedSummarizerKinds: [CLIKind] {
+        guard !showsUnavailableSummarizers else { return CLIKind.summarizerCases }
+        let selected = selectedKind.map { [$0] } ?? []
+        return CLIKind.summarizerCases.filter { availableSummarizerKinds.contains($0) || selected.contains($0) }
+    }
+
+    private func normalizePrimaryIfNeeded() {
+        guard let available = availableSummarizerKinds.first else {
+            return
+        }
+
+        let selected = CLIKind(rawValue: primaryRaw)
+        if let selected,
+           selected.supportsSummarization,
+           controller.cliStatuses[selected]?.isInstalled == true {
+            return
+        }
+        primaryRaw = available.rawValue
+    }
+
+    private func modelBinding(for kind: CLIKind) -> Binding<String> {
+        Binding(
+            get: {
+                switch kind {
+                case .codex: codexModel
+                case .claudeCode: claudeModel
+                case .opencode: opencodeModel
+                case .pi: piModel
+                case .githubCopilot: ""
+                case .kiloCode: kiloModel
+                case .goose: gooseModel
+                case .qwenCode: qwenModel
+                case .continueCLI, .geminiCLI: ""
+                }
+            },
+            set: { value in
+                switch kind {
+                case .codex: codexModel = value
+                case .claudeCode: claudeModel = value
+                case .opencode: opencodeModel = value
+                case .pi: piModel = value
+                case .githubCopilot: break
+                case .kiloCode: kiloModel = value
+                case .goose: gooseModel = value
+                case .qwenCode: qwenModel = value
+                case .continueCLI, .geminiCLI: break
+                }
+            }
+        )
     }
 }
 
 private struct GeneralSettingsView: View {
     @ObservedObject var controller: AppController
     @ObservedObject var launchAtLogin: LaunchAtLoginService
+    @Environment(\.openWindow) private var openWindow
     @AppStorage(PreferenceKeys.capsStackEnabled) private var capsStackEnabled = true
     @AppStorage(PreferenceKeys.keepRunningInBackground) private var keepRunningInBackground = true
     @AppStorage(PreferenceKeys.suppressOriginalCapsLock) private var suppressOriginalCapsLock = false
     @AppStorage(PreferenceKeys.minimumAwayDuration) private var minimumAwaySeconds = 0
+    @AppStorage(PreferenceKeys.setupCompleted) private var setupCompleted = false
 
     var body: some View {
         Form {
@@ -374,6 +542,16 @@ private struct GeneralSettingsView: View {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(Color.orange)
                 }
+            }
+
+            Section("セットアップ") {
+                Button("セットアップを開く…") {
+                    setupCompleted = false
+                    openWindow(id: "history")
+                }
+                Text("収集元、要約担当、匿名テレメトリの選択を見直せます。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -477,7 +655,10 @@ private struct DataManagementSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            SettingsHeader(title: "データ管理", message: "履歴と退席前メモはこのMac上でのみ管理されます。")
+            SettingsHeader(
+                title: "データ管理",
+                message: "履歴と退席前メモはこのMac上でのみ管理されます。"
+            )
 
             dataRow(
                 title: "履歴フォルダ",
@@ -562,14 +743,23 @@ private struct AdvancedSummarizerSettingsView: View {
     @AppStorage(PreferenceKeys.claudeExecutablePath) private var claudePath = ""
     @AppStorage(PreferenceKeys.opencodeExecutablePath) private var opencodePath = ""
     @AppStorage(PreferenceKeys.piExecutablePath) private var piPath = ""
+    @AppStorage(PreferenceKeys.copilotExecutablePath) private var copilotPath = ""
+    @AppStorage(PreferenceKeys.kiloExecutablePath) private var kiloPath = ""
+    @AppStorage(PreferenceKeys.gooseExecutablePath) private var goosePath = ""
+    @AppStorage(PreferenceKeys.qwenExecutablePath) private var qwenPath = ""
     @AppStorage(PreferenceKeys.codexModel) private var codexModel = ""
     @AppStorage(PreferenceKeys.claudeModel) private var claudeModel = ""
     @AppStorage(PreferenceKeys.opencodeModel) private var opencodeModel = ""
     @AppStorage(PreferenceKeys.piModel) private var piModel = ""
+    @AppStorage(PreferenceKeys.copilotModel) private var copilotModel = ""
+    @AppStorage(PreferenceKeys.kiloModel) private var kiloModel = ""
+    @AppStorage(PreferenceKeys.gooseModel) private var gooseModel = ""
+    @AppStorage(PreferenceKeys.qwenModel) private var qwenModel = ""
     @AppStorage(PreferenceKeys.codexReasoning) private var codexReasoning = ""
     @AppStorage(PreferenceKeys.claudeReasoning) private var claudeReasoning = ""
     @AppStorage(PreferenceKeys.opencodeReasoning) private var opencodeReasoning = ""
     @AppStorage(PreferenceKeys.piReasoning) private var piReasoning = ""
+    @AppStorage(PreferenceKeys.copilotReasoning) private var copilotReasoning = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -603,6 +793,34 @@ private struct AdvancedSummarizerSettingsView: View {
                 reasoning: $piReasoning,
                 controller: controller
             )
+            ExecutableRow(
+                kind: .githubCopilot,
+                path: $copilotPath,
+                model: $copilotModel,
+                reasoning: $copilotReasoning,
+                controller: controller
+            )
+            ExecutableRow(
+                kind: .kiloCode,
+                path: $kiloPath,
+                model: $kiloModel,
+                reasoning: .constant(""),
+                controller: controller
+            )
+            ExecutableRow(
+                kind: .goose,
+                path: $goosePath,
+                model: $gooseModel,
+                reasoning: .constant(""),
+                controller: controller
+            )
+            ExecutableRow(
+                kind: .qwenCode,
+                path: $qwenPath,
+                model: $qwenModel,
+                reasoning: .constant(""),
+                controller: controller
+            )
         }
     }
 }
@@ -618,9 +836,7 @@ private struct ExecutableRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
-                Image(systemName: kind.systemImage)
-                    .frame(width: 32, height: 32)
-                    .background(BrandPalette.BriefTheme.signal.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                AgentArtwork(kind: kind, size: 32)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(kind.displayName).font(.headline)
@@ -670,8 +886,10 @@ private struct ExecutableRow: View {
                     .textFieldStyle(.roundedBorder)
                 TextField(kind.modelHint, text: $model)
                     .textFieldStyle(.roundedBorder)
-                TextField("Reasoning: \(kind.reasoningHint)", text: $reasoning)
-                    .textFieldStyle(.roundedBorder)
+                if kind.supportsReasoningOverride {
+                    TextField("Reasoning: \(kind.reasoningHint)", text: $reasoning)
+                        .textFieldStyle(.roundedBorder)
+                }
 
                 if let testMessage = controller.providerTestMessages[kind] {
                     Text(testMessage)

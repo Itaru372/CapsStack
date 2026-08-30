@@ -5,6 +5,9 @@ import Foundation
 /// directory.
 protocol SummaryProvider: AnyObject, Sendable {
     var kind: CLIKind { get }
+    /// Returns whether this provider can be invoked with the current executable override.
+    /// Implementations use a filesystem-only check; no CLI process is started here.
+    func isAvailable(executableOverride: String?) -> Bool
     func summarize(
         batch: CollectionBatch,
         executableOverride: String?,
@@ -13,12 +16,23 @@ protocol SummaryProvider: AnyObject, Sendable {
     ) async throws -> SummaryDocument
 }
 
+extension SummaryProvider {
+    /// Test doubles and third-party providers remain usable without an availability probe. The
+    /// built-in providers override this with their resolver-backed check.
+    func isAvailable(executableOverride: String?) -> Bool { true }
+}
+
 enum SummaryPromptFactory {
     static func prompt(for batch: CollectionBatch, provider: CLIKind) throws -> Data {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let payload = try encoder.encode(batch)
+        let payload = try encoder.encode(ProjectGroupedPromptArtifact(
+            interval: batch.interval,
+            projects: CollectionProjectGrouping.projects(in: batch),
+            issues: batch.issues,
+            quickMemo: batch.quickMemo
+        ))
         guard let payloadText = String(data: payload, encoding: .utf8) else {
             throw SummaryProviderError.invalidOutput(provider)
         }
@@ -27,8 +41,9 @@ enum SummaryPromptFactory {
         コード変更、コマンド実行、ファイル探索、ネットワークアクセス、元セッションのresumeやcontinueは禁止です。
         ログにない事実は推測せず、不明な項目は空配列にしてください。
         JSONにquickMemoフィールドがある場合は、それはユーザーが退席前に書いた補足メモです。セッションログと併せて考慮し、要約のoverviewやnextStepsに反映してください。
-        次のキーをすべて持つJSONオブジェクトだけを返してください: overview, progress, currentState, decisions, blockers, nextSteps, sessions。
-        sessionsの各要素はsessionID, source, summaryを持つ必要があります。Markdownフェンスや説明文は出力しないでください。
+        入力のeventsはCaps LockがONだった区間だけに絞られています。projectsごとに、その中のsessionsをまとめているため、この階層を維持し、プロジェクトをまたいでセッションを混ぜないでください。
+        次のキーをすべて持つJSONオブジェクトだけを返してください: overview, progress, currentState, decisions, blockers, nextSteps, projects。
+        projectsの出力各要素はprojectID、name、summary、sessionsを持ち、projectIDとnameは入力projectsの値を維持し、summaryはそのプロジェクト内のsessions/eventsを要約してください。出力sessionsの各要素はsessionID、source、summaryを持ち、入力sessionsのid/provider/eventsを対応づけてください。Markdownフェンスや説明文は出力しないでください。
 
         BEGIN_CAPSSTACK_ARTIFACT
         \(payloadText)
@@ -36,6 +51,13 @@ enum SummaryPromptFactory {
         """
         return Data(text.utf8)
     }
+}
+
+private struct ProjectGroupedPromptArtifact: Encodable {
+    let interval: AwayInterval
+    let projects: [CollectedProjectArtifact]
+    let issues: [CollectionIssue]
+    let quickMemo: String?
 }
 
 final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {
@@ -55,6 +77,10 @@ final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {
         self.runner = runner
         self.timeout = max(0.1, timeout)
         self.fileManager = fileManager
+    }
+
+    func isAvailable(executableOverride: String? = nil) -> Bool {
+        resolver.executableURL(for: .codex, override: executableOverride) != nil
     }
 
     func summarize(
@@ -181,6 +207,10 @@ final class ClaudeCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
         self.timeout = max(0.1, timeout)
         self.helpTimeout = max(0.1, helpTimeout)
         self.fileManager = fileManager
+    }
+
+    func isAvailable(executableOverride: String? = nil) -> Bool {
+        resolver.executableURL(for: .claudeCode, override: executableOverride) != nil
     }
 
     func summarize(
@@ -332,6 +362,13 @@ final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
         self.fileManager = fileManager
     }
 
+    func isAvailable(executableOverride: String? = nil) -> Bool {
+        guard let executable = resolver.executableURL(for: .opencode, override: executableOverride) else {
+            return false
+        }
+        return executable.lastPathComponent != "opencode2"
+    }
+
     func summarize(
         batch: CollectionBatch,
         executableOverride: String? = nil,
@@ -458,6 +495,10 @@ final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
         self.fileManager = fileManager
     }
 
+    func isAvailable(executableOverride: String? = nil) -> Bool {
+        resolver.executableURL(for: .pi, override: executableOverride) != nil
+    }
+
     func summarize(
         batch: CollectionBatch,
         executableOverride: String? = nil,
@@ -555,6 +596,177 @@ final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
     }
 }
 
+/// Runs newer agent CLIs only through their documented non-interactive, tool-disabled modes.
+/// Every strategy receives the artifact as prompt text, uses an isolated temporary cwd, and
+/// disables session persistence when the CLI exposes that boundary.
+final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
+    enum Strategy: Sendable {
+        case githubCopilot
+        case kiloCode
+        case goose
+        case qwenCode
+    }
+
+    let kind: CLIKind
+    private let strategy: Strategy
+    private let resolver: CLIResolving
+    private let runner: ProcessRunning
+    private let timeout: TimeInterval
+    private let fileManager: FileManager
+
+    init(
+        kind: CLIKind,
+        strategy: Strategy,
+        resolver: CLIResolving = CLIResolver(),
+        runner: ProcessRunning = ProcessRunner(),
+        timeout: TimeInterval = 120,
+        fileManager: FileManager = .default
+    ) {
+        self.kind = kind
+        self.strategy = strategy
+        self.resolver = resolver
+        self.runner = runner
+        self.timeout = max(0.1, timeout)
+        self.fileManager = fileManager
+    }
+
+    func isAvailable(executableOverride: String? = nil) -> Bool {
+        resolver.executableURL(for: kind, override: executableOverride) != nil
+    }
+
+    func summarize(
+        batch: CollectionBatch,
+        executableOverride: String? = nil,
+        modelOverride: String? = nil,
+        reasoningOverride: String? = nil
+    ) async throws -> SummaryDocument {
+        guard let executable = resolver.executableURL(for: kind, override: executableOverride) else {
+            throw SummaryProviderError.executableNotFound(kind)
+        }
+        let temporaryDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-\(kind.rawValue)-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+            defer { try? fileManager.removeItem(at: temporaryDirectory) }
+
+            let prompt = String(
+                decoding: try SummaryPromptFactory.prompt(for: batch, provider: kind),
+                as: UTF8.self
+            )
+            let invocation = arguments(
+                prompt: prompt,
+                modelOverride: modelOverride,
+                reasoningOverride: reasoningOverride,
+                temporaryDirectory: temporaryDirectory
+            )
+            let specification = ProcessSpecification(
+                executableURL: executable,
+                arguments: invocation.arguments,
+                currentDirectoryURL: temporaryDirectory,
+                environment: invocation.environment
+            )
+            let result: ProcessResult
+            do {
+                result = try await runner.run(specification, timeout: timeout)
+            } catch ProcessRunnerError.timedOut {
+                throw SummaryProviderError.timedOut(kind)
+            } catch {
+                throw SummaryProviderError.processFailed(kind, error.localizedDescription)
+            }
+            guard result.succeeded else {
+                let text = String(data: result.standardError, encoding: .utf8)
+                    ?? String(data: result.standardOutput, encoding: .utf8)
+                    ?? "終了コード \(result.terminationStatus)"
+                throw SummaryProviderError.processFailed(kind, String(text.prefix(1_000)))
+            }
+            guard !result.didTruncateOutput,
+                  let document = SummaryOutputParser.parse(stdout: result.standardOutput, provider: kind) else {
+                throw SummaryProviderError.invalidOutput(kind)
+            }
+            return document
+        } catch let error as SummaryProviderError {
+            throw error
+        } catch {
+            throw SummaryProviderError.processFailed(kind, error.localizedDescription)
+        }
+    }
+
+    private func arguments(
+        prompt: String,
+        modelOverride: String?,
+        reasoningOverride: String?,
+        temporaryDirectory: URL
+    ) -> (arguments: [String], environment: [String: String]?) {
+        let model = modelOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasoning = reasoningOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch strategy {
+        case .githubCopilot:
+            var arguments = [
+                "-p", prompt,
+                "--output-format=json",
+                "--available-tools=",
+                "--disable-builtin-mcps",
+                "--no-custom-instructions"
+            ]
+            if let model, !model.isEmpty { arguments += ["--model", model] }
+            if let reasoning, !reasoning.isEmpty { arguments += ["--effort", reasoning] }
+            return (arguments, [
+                // COPILOT_HOME contains session-state and other persistent CLI state. Keeping it
+                // below the temporary cwd prevents the artifact from being retained after this
+                // one-shot summary.
+                "COPILOT_HOME": temporaryDirectory.appendingPathComponent("copilot-home", isDirectory: true).path,
+                "COPILOT_CACHE_HOME": temporaryDirectory.appendingPathComponent("copilot-cache", isDirectory: true).path,
+                "COPILOT_MCP_TOOL_CACHE": "false",
+                "COPILOT_OTEL_ENABLED": "false",
+                "COPILOT_AUTO_UPDATE": "false",
+                "COPILOT_OTEL_FILE_EXPORTER_PATH": "",
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "",
+                "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false"
+            ])
+        case .kiloCode:
+            var arguments = ["run", "--agent", "ask", "--format", "json"]
+            if let model, !model.isEmpty { arguments += ["--model", model] }
+            arguments.append(prompt)
+            return (arguments, [
+                // Kilo persists conversations in this database even for `run`; point it at a
+                // throw-away file so the source artifact never enters the user's session store.
+                // Keep the normal XDG data root so the CLI can still resolve its existing auth
+                // records; KILO_DB is the session-bearing boundary we need to isolate.
+                "KILO_DB": temporaryDirectory.appendingPathComponent("kilo.db").path
+            ])
+        case .goose:
+            var arguments = [
+                "run", "--no-session", "--quiet", "--output-format", "json", "-t", prompt
+            ]
+            if let model, !model.isEmpty { arguments += ["--model", model] }
+            return (arguments, [
+                "GOOSE_MODE": "chat",
+                "GOOSE_TELEMETRY_ENABLED": "false",
+                "GOOSE_DISABLE_SESSION_NAMING": "true"
+            ])
+        case .qwenCode:
+            var arguments = [
+                "-p", prompt,
+                "--safe-mode",
+                "--approval-mode", "plan",
+                "--exclude-tools", "shell,write,edit,agent",
+                "--max-tool-calls", "0",
+                "--max-wall-time", String(Int(ceil(timeout))),
+                "--output-format", "json"
+            ]
+            if let model, !model.isEmpty { arguments += ["--model", model] }
+            return (arguments, [
+                // Qwen keeps conversations/logs/todos below this runtime directory. QWEN_HOME is
+                // intentionally left untouched so an existing authentication setup remains
+                // available to the CLI.
+                "QWEN_RUNTIME_DIR": temporaryDirectory.appendingPathComponent("qwen-runtime", isDirectory: true).path,
+                "QWEN_TELEMETRY_ENABLED": "false",
+                "QWEN_CODE_SAFE_MODE": "true"
+            ])
+        }
+    }
+}
+
 enum SummaryOutputParser {
     static func parse(stdout: Data, provider: CLIKind) -> SummaryDocument? {
         guard !stdout.isEmpty else { return nil }
@@ -604,13 +816,15 @@ enum SummaryOutputParser {
         guard let normalized = normalizedDictionary(dictionary) else { return nil }
         let hasCurrentState = normalized["currentstate"] != nil || normalized["current_state"] != nil
         let hasNextSteps = normalized["nextsteps"] != nil || normalized["next_steps"] != nil
+        let hasProjects = normalized["projects"] != nil
+        let hasLegacySessions = normalized["sessions"] != nil
         guard normalized["overview"] != nil,
               normalized["progress"] != nil,
               hasCurrentState,
               normalized["decisions"] != nil,
               normalized["blockers"] != nil,
               hasNextSteps,
-              normalized["sessions"] != nil else {
+              hasProjects || hasLegacySessions else {
             return nil
         }
 
@@ -626,9 +840,32 @@ enum SummaryOutputParser {
               let currentState = stringArray(normalized["currentstate"] ?? normalized["current_state"]),
               let decisions = stringArray(normalized["decisions"]),
               let blockers = stringArray(normalized["blockers"]),
-              let nextSteps = stringArray(normalized["nextsteps"] ?? normalized["next_steps"]),
-              let sessions = sessionArray(normalized["sessions"], provider: provider) else {
+              let nextSteps = stringArray(normalized["nextsteps"] ?? normalized["next_steps"]) else {
             return nil
+        }
+
+        let projects: [ProjectSummary]
+        let sessions: [SessionSummary]
+        if hasProjects {
+            guard let parsedProjects = projectArray(normalized["projects"], provider: provider) else {
+                return nil
+            }
+            if parsedProjects.isEmpty, hasLegacySessions {
+                guard let parsedSessions = sessionArray(normalized["sessions"], provider: provider) else {
+                    return nil
+                }
+                projects = []
+                sessions = parsedSessions
+            } else {
+                projects = parsedProjects
+                sessions = parsedProjects.flatMap(\.sessions)
+            }
+        } else {
+            guard let parsedSessions = sessionArray(normalized["sessions"], provider: provider) else {
+                return nil
+            }
+            projects = []
+            sessions = parsedSessions
         }
 
         return SummaryDocument(
@@ -638,7 +875,8 @@ enum SummaryOutputParser {
             decisions: decisions,
             blockers: blockers,
             nextSteps: nextSteps,
-            sessions: sessions
+            sessions: sessions,
+            projects: projects
         )
     }
 
@@ -674,6 +912,30 @@ enum SummaryOutputParser {
                 sessionID: id,
                 source: stringValue(normalized["source"]) ?? provider.displayName,
                 summary: summary
+            ))
+        }
+        return result
+    }
+
+    private static func projectArray(_ value: Any?, provider: CLIKind) -> [ProjectSummary]? {
+        guard let array = value as? [Any] else { return nil }
+        var result: [ProjectSummary] = []
+        result.reserveCapacity(array.count)
+        for item in array {
+            guard let dictionary = item as? [String: Any],
+                  let normalized = normalizedDictionary(dictionary),
+                  let projectID = stringValue(normalized["projectid"] ?? normalized["project_id"]),
+                  let name = stringValue(normalized["name"] ?? normalized["projectname"]),
+                  let summary = stringValue(normalized["summary"] ?? normalized["overview"]),
+                  let sessions = sessionArray(normalized["sessions"], provider: provider),
+                  !projectID.isEmpty, !name.isEmpty, !summary.isEmpty else {
+                return nil
+            }
+            result.append(ProjectSummary(
+                projectID: projectID,
+                name: name,
+                summary: summary,
+                sessions: sessions
             ))
         }
         return result

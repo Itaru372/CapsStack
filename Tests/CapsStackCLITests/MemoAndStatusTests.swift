@@ -56,7 +56,7 @@ final class MemoAndStatusTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("CapsStackCLI.PATH.\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        for name in ["codex", "claude", "opencode", "opencode2", "pi"] {
+        for name in ["codex", "claude", "opencode", "opencode2", "pi", "copilot", "kilo", "goose", "qwen", "cn", "gemini"] {
             let url = directory.appendingPathComponent(name)
             XCTAssertTrue(FileManager.default.createFile(atPath: url.path, contents: Data()))
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
@@ -73,7 +73,10 @@ final class MemoAndStatusTests: XCTestCase {
         )
         XCTAssertFalse(report.historyExists)
         XCTAssertEqual(report.historyCount, 0)
-        XCTAssertEqual(report.agents.map(\.executable), ["codex", "claude", "opencode", "opencode2", "pi"])
+        XCTAssertEqual(
+            report.agents.map(\.executable),
+            ["codex", "claude", "opencode", "opencode2", "pi", "copilot", "kilo", "goose", "qwen", "cn", "gemini"]
+        )
         XCTAssertTrue(report.agents.allSatisfy(\.isAvailable))
     }
 }

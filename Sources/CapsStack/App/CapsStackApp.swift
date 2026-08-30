@@ -30,10 +30,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct CapsStackApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var controller = AppController()
+    @AppStorage(PreferenceKeys.setupCompleted) private var setupCompleted = false
 
     var body: some Scene {
         WindowGroup("CapsStack 履歴", id: "history") {
-            HistoryView(controller: controller)
+            Group {
+                if setupCompleted {
+                    HistoryView(controller: controller)
+                        .transition(.opacity)
+                } else {
+                    SetupView(controller: controller, isCompleted: $setupCompleted)
+                        .transition(.opacity)
+                }
+            }
+                .animation(.easeInOut(duration: 0.2), value: setupCompleted)
                 .task { controller.start() }
         }
         .defaultSize(width: 1120, height: 740)

@@ -125,6 +125,14 @@ cp "$ROOT_DIR/Packaging/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
 cp "$INFO_PLIST" "$APP_CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_VERSION" "$APP_CONTENTS/Info.plist"
+# The PostHog project token is a public project identifier, but keeping it out of source control
+# lets local builds remain telemetry-free. A token is embedded only when explicitly supplied.
+if [[ -n "${CAPSSTACK_POSTHOG_PROJECT_TOKEN:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CapsStackPostHogProjectToken $CAPSSTACK_POSTHOG_PROJECT_TOKEN" "$APP_CONTENTS/Info.plist"
+fi
+if [[ -n "${CAPSSTACK_POSTHOG_HOST:-}" ]]; then
+  /usr/libexec/PlistBuddy -c "Set :CapsStackPostHogHost $CAPSSTACK_POSTHOG_HOST" "$APP_CONTENTS/Info.plist"
+fi
 chmod +x "$APP_BINARY" "$CLI_BINARY"
 xattr -cr "$APP_BUNDLE"
 export COPYFILE_DISABLE=1

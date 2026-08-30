@@ -16,6 +16,10 @@ xcuserdata/
 
 # Codex desktop's generated, machine-local environment
 .codex/
+.agents/
+
+# Machine-local agent instructions (kept in the working tree, not published)
+AGENTS.md
 
 # Local secrets and signing material
 .env

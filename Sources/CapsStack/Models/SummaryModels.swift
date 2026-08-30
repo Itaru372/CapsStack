@@ -7,6 +7,14 @@ struct SessionSummary: Codable, Equatable, Identifiable, Sendable {
     let summary: String
 }
 
+struct ProjectSummary: Codable, Equatable, Identifiable, Sendable {
+    var id: String { projectID }
+    let projectID: String
+    let name: String
+    let summary: String
+    let sessions: [SessionSummary]
+}
+
 struct SummaryDocument: Codable, Equatable, Sendable {
     let overview: String
     let progress: [String]
@@ -15,6 +23,44 @@ struct SummaryDocument: Codable, Equatable, Sendable {
     let blockers: [String]
     let nextSteps: [String]
     let sessions: [SessionSummary]
+    let projects: [ProjectSummary]
+
+    init(
+        overview: String,
+        progress: [String],
+        currentState: [String],
+        decisions: [String],
+        blockers: [String],
+        nextSteps: [String],
+        sessions: [SessionSummary],
+        projects: [ProjectSummary] = []
+    ) {
+        self.overview = overview
+        self.progress = progress
+        self.currentState = currentState
+        self.decisions = decisions
+        self.blockers = blockers
+        self.nextSteps = nextSteps
+        self.sessions = sessions
+        self.projects = projects
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case overview, progress, currentState, decisions, blockers, nextSteps, sessions, projects
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        overview = try container.decode(String.self, forKey: .overview)
+        progress = try container.decode([String].self, forKey: .progress)
+        currentState = try container.decode([String].self, forKey: .currentState)
+        decisions = try container.decode([String].self, forKey: .decisions)
+        blockers = try container.decode([String].self, forKey: .blockers)
+        nextSteps = try container.decode([String].self, forKey: .nextSteps)
+        projects = try container.decodeIfPresent([ProjectSummary].self, forKey: .projects) ?? []
+        sessions = try container.decodeIfPresent([SessionSummary].self, forKey: .sessions)
+            ?? projects.flatMap(\.sessions)
+    }
 
     static let empty = SummaryDocument(
         overview: "要約できる進捗はありませんでした。",
@@ -23,7 +69,8 @@ struct SummaryDocument: Codable, Equatable, Sendable {
         decisions: [],
         blockers: [],
         nextSteps: [],
-        sessions: []
+        sessions: [],
+        projects: []
     )
 }
 
@@ -69,21 +116,34 @@ enum SummarySchema {
         "decisions": { "type": "array", "items": { "type": "string" } },
         "blockers": { "type": "array", "items": { "type": "string" } },
         "nextSteps": { "type": "array", "items": { "type": "string" } },
-        "sessions": {
+        "projects": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "sessionID": { "type": "string" },
-              "source": { "type": "string" },
-              "summary": { "type": "string" }
+              "projectID": { "type": "string" },
+              "name": { "type": "string" },
+              "summary": { "type": "string" },
+              "sessions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "sessionID": { "type": "string" },
+                    "source": { "type": "string" },
+                    "summary": { "type": "string" }
+                  },
+                  "required": ["sessionID", "source", "summary"]
+                }
+              }
             },
-            "required": ["sessionID", "source", "summary"]
+            "required": ["projectID", "name", "summary", "sessions"]
           }
         }
       },
-      "required": ["overview", "progress", "currentState", "decisions", "blockers", "nextSteps", "sessions"]
+      "required": ["overview", "progress", "currentState", "decisions", "blockers", "nextSteps", "projects"]
     }
     """#
 }

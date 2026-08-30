@@ -11,6 +11,12 @@ enum CLIAgentKind: String, Codable, Sendable {
     case claudeCode
     case opencode
     case pi
+    case githubCopilot
+    case kiloCode
+    case goose
+    case qwenCode
+    case continueCLI
+    case geminiCLI
 
     var displayName: String {
         switch self {
@@ -18,6 +24,12 @@ enum CLIAgentKind: String, Codable, Sendable {
         case .claudeCode: "Claude Code CLI"
         case .opencode: "OpenCode CLI"
         case .pi: "Pi coding agent"
+        case .githubCopilot: "GitHub Copilot CLI"
+        case .kiloCode: "Kilo Code CLI"
+        case .goose: "Goose CLI"
+        case .qwenCode: "Qwen Code"
+        case .continueCLI: "Continue CLI"
+        case .geminiCLI: "Gemini CLI"
         }
     }
 }
@@ -42,6 +54,14 @@ struct CLISessionSummary: Codable, Equatable, Identifiable, Sendable {
     let summary: String
 }
 
+struct CLIProjectSummary: Codable, Equatable, Identifiable, Sendable {
+    var id: String { projectID }
+    let projectID: String
+    let name: String
+    let summary: String
+    let sessions: [CLISessionSummary]
+}
+
 struct CLISummaryDocument: Codable, Equatable, Sendable {
     let overview: String
     let progress: [String]
@@ -50,6 +70,44 @@ struct CLISummaryDocument: Codable, Equatable, Sendable {
     let blockers: [String]
     let nextSteps: [String]
     let sessions: [CLISessionSummary]
+    let projects: [CLIProjectSummary]
+
+    init(
+        overview: String,
+        progress: [String],
+        currentState: [String],
+        decisions: [String],
+        blockers: [String],
+        nextSteps: [String],
+        sessions: [CLISessionSummary],
+        projects: [CLIProjectSummary] = []
+    ) {
+        self.overview = overview
+        self.progress = progress
+        self.currentState = currentState
+        self.decisions = decisions
+        self.blockers = blockers
+        self.nextSteps = nextSteps
+        self.sessions = sessions
+        self.projects = projects
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case overview, progress, currentState, decisions, blockers, nextSteps, sessions, projects
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        overview = try container.decode(String.self, forKey: .overview)
+        progress = try container.decode([String].self, forKey: .progress)
+        currentState = try container.decode([String].self, forKey: .currentState)
+        decisions = try container.decode([String].self, forKey: .decisions)
+        blockers = try container.decode([String].self, forKey: .blockers)
+        nextSteps = try container.decode([String].self, forKey: .nextSteps)
+        projects = try container.decodeIfPresent([CLIProjectSummary].self, forKey: .projects) ?? []
+        sessions = try container.decodeIfPresent([CLISessionSummary].self, forKey: .sessions)
+            ?? projects.flatMap(\.sessions)
+    }
 }
 
 struct CLIHistoryEntry: Codable, Equatable, Identifiable, Sendable {

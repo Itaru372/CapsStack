@@ -8,23 +8,47 @@ enum PreferenceKeys {
     static let collectClaude = "collectClaude"
     static let collectOpenCode = "collectOpenCode"
     static let collectPi = "collectPi"
+    static let collectGitHubCopilot = "collectGitHubCopilot"
+    static let collectKilo = "collectKilo"
+    static let collectGoose = "collectGoose"
+    static let collectQwen = "collectQwen"
+    static let collectContinue = "collectContinue"
+    static let collectGemini = "collectGemini"
     static let primarySummarizer = "primarySummarizer"
     static let automaticFallback = "automaticFallback"
     static let codexExecutablePath = "codexExecutablePath"
     static let claudeExecutablePath = "claudeExecutablePath"
     static let opencodeExecutablePath = "opencodeExecutablePath"
     static let piExecutablePath = "piExecutablePath"
+    static let copilotExecutablePath = "copilotExecutablePath"
+    static let kiloExecutablePath = "kiloExecutablePath"
+    static let gooseExecutablePath = "gooseExecutablePath"
+    static let qwenExecutablePath = "qwenExecutablePath"
+    static let continueExecutablePath = "continueExecutablePath"
     static let codexModel = "codexModel"
     static let claudeModel = "claudeModel"
     static let opencodeModel = "opencodeModel"
     static let piModel = "piModel"
+    static let copilotModel = "copilotModel"
+    static let kiloModel = "kiloModel"
+    static let gooseModel = "gooseModel"
+    static let qwenModel = "qwenModel"
+    static let continueModel = "continueModel"
     static let codexReasoning = "codexReasoning"
     static let claudeReasoning = "claudeReasoning"
     static let opencodeReasoning = "opencodeReasoning"
     static let piReasoning = "piReasoning"
+    static let copilotReasoning = "copilotReasoning"
     static let awayStart = "awayStart"
     static let minimumAwayDuration = "minimumAwayDuration"
     static let quickMemo = "quickMemo"
+    static let telemetryEnabled = "telemetryEnabled"
+    static let setupCompleted = "setupCompleted"
+    /// Stores the version of the one-time CLI auto-configuration performed by AppController.
+    ///
+    /// This is intentionally persisted separately from the registered defaults. Registered
+    /// values are only fallbacks and cannot tell whether a user explicitly changed a setting.
+    static let cliDefaultsInitialized = "cliDefaultsInitialized"
 }
 
 /// Registers the app's UserDefaults domain once per UserDefaults instance. Calling
@@ -42,14 +66,36 @@ private enum PreferenceDefaults {
             PreferenceKeys.capsStackEnabled: true,
             PreferenceKeys.keepRunningInBackground: true,
             PreferenceKeys.suppressOriginalCapsLock: false,
-            PreferenceKeys.collectCodex: true,
-            PreferenceKeys.collectClaude: true,
-            PreferenceKeys.collectOpenCode: false,
-            PreferenceKeys.collectPi: false,
-            PreferenceKeys.primarySummarizer: CLIKind.codex.rawValue,
+            // CLI preferences are initialized from the local environment on first launch. Do not
+            // register them here: the registration domain is shared by UserDefaults instances,
+            // and a static CLI choice would make an unrelated test suite or app context inherit
+            // a Codex/Claude dependency. Preference structs provide safe empty/fallback values
+            // until `CLIInitialPreferences` persists the detected configuration.
             PreferenceKeys.automaticFallback: true,
-            PreferenceKeys.minimumAwayDuration: 0
+            PreferenceKeys.minimumAwayDuration: 0,
+            PreferenceKeys.setupCompleted: false,
+            // Product analytics is an explicit opt-in and remains disabled by default.
+            PreferenceKeys.telemetryEnabled: false
         ])
+    }
+}
+
+/// Controls the optional anonymous product analytics integration. This preference never grants
+/// access to session content: it only enables the reviewed event vocabulary in TelemetryEvent.
+struct TelemetryPreferences: Equatable, Sendable {
+    var isEnabled: Bool
+
+    init(defaults: UserDefaults = .standard) {
+        PreferenceDefaults.register(on: defaults)
+        isEnabled = defaults.object(forKey: PreferenceKeys.telemetryEnabled) as? Bool ?? false
+    }
+
+    init(isEnabled: Bool) {
+        self.isEnabled = isEnabled
+    }
+
+    func save(to defaults: UserDefaults = .standard) {
+        defaults.set(isEnabled, forKey: PreferenceKeys.telemetryEnabled)
     }
 }
 
@@ -136,6 +182,12 @@ struct CollectorPreferences: Equatable, Sendable {
         if defaults.bool(forKey: PreferenceKeys.collectClaude) { sources.insert(.claudeCode) }
         if defaults.bool(forKey: PreferenceKeys.collectOpenCode) { sources.insert(.opencode) }
         if defaults.bool(forKey: PreferenceKeys.collectPi) { sources.insert(.pi) }
+        if defaults.bool(forKey: PreferenceKeys.collectGitHubCopilot) { sources.insert(.githubCopilot) }
+        if defaults.bool(forKey: PreferenceKeys.collectKilo) { sources.insert(.kiloCode) }
+        if defaults.bool(forKey: PreferenceKeys.collectGoose) { sources.insert(.goose) }
+        if defaults.bool(forKey: PreferenceKeys.collectQwen) { sources.insert(.qwenCode) }
+        if defaults.bool(forKey: PreferenceKeys.collectContinue) { sources.insert(.continueCLI) }
+        if defaults.bool(forKey: PreferenceKeys.collectGemini) { sources.insert(.geminiCLI) }
         enabledSources = sources
     }
 
@@ -153,25 +205,42 @@ struct SummarizerPreferences: Equatable, Sendable {
 
     init(defaults: UserDefaults = .standard) {
         PreferenceDefaults.register(on: defaults)
-        primary = CLIKind(rawValue: defaults.string(forKey: PreferenceKeys.primarySummarizer) ?? "") ?? .codex
-        automaticFallback = defaults.bool(forKey: PreferenceKeys.automaticFallback)
+        let storedPrimary = CLIKind(
+            rawValue: defaults.string(forKey: PreferenceKeys.primarySummarizer) ?? ""
+        )
+        // Keep the persisted model non-optional for history compatibility. AppController
+        // bootstraps this value from detected CLIs, and the orchestrator never invokes this
+        // compatibility fallback unless no usable provider was selected.
+        primary = storedPrimary?.supportsSummarization == true ? storedPrimary ?? .codex : .codex
+        automaticFallback = defaults.object(forKey: PreferenceKeys.automaticFallback) as? Bool ?? true
         executableOverrides = [
             .codex: defaults.string(forKey: PreferenceKeys.codexExecutablePath) ?? "",
             .claudeCode: defaults.string(forKey: PreferenceKeys.claudeExecutablePath) ?? "",
             .opencode: defaults.string(forKey: PreferenceKeys.opencodeExecutablePath) ?? "",
-            .pi: defaults.string(forKey: PreferenceKeys.piExecutablePath) ?? ""
+            .pi: defaults.string(forKey: PreferenceKeys.piExecutablePath) ?? "",
+            .githubCopilot: defaults.string(forKey: PreferenceKeys.copilotExecutablePath) ?? "",
+            .kiloCode: defaults.string(forKey: PreferenceKeys.kiloExecutablePath) ?? "",
+            .goose: defaults.string(forKey: PreferenceKeys.gooseExecutablePath) ?? "",
+            .qwenCode: defaults.string(forKey: PreferenceKeys.qwenExecutablePath) ?? "",
+            .continueCLI: defaults.string(forKey: PreferenceKeys.continueExecutablePath) ?? ""
         ]
         modelOverrides = [
             .codex: defaults.string(forKey: PreferenceKeys.codexModel) ?? "",
             .claudeCode: defaults.string(forKey: PreferenceKeys.claudeModel) ?? "",
             .opencode: defaults.string(forKey: PreferenceKeys.opencodeModel) ?? "",
-            .pi: defaults.string(forKey: PreferenceKeys.piModel) ?? ""
+            .pi: defaults.string(forKey: PreferenceKeys.piModel) ?? "",
+            .githubCopilot: defaults.string(forKey: PreferenceKeys.copilotModel) ?? "",
+            .kiloCode: defaults.string(forKey: PreferenceKeys.kiloModel) ?? "",
+            .goose: defaults.string(forKey: PreferenceKeys.gooseModel) ?? "",
+            .qwenCode: defaults.string(forKey: PreferenceKeys.qwenModel) ?? "",
+            .continueCLI: defaults.string(forKey: PreferenceKeys.continueModel) ?? ""
         ]
         reasoningOverrides = [
             .codex: defaults.string(forKey: PreferenceKeys.codexReasoning) ?? "",
             .claudeCode: defaults.string(forKey: PreferenceKeys.claudeReasoning) ?? "",
             .opencode: defaults.string(forKey: PreferenceKeys.opencodeReasoning) ?? "",
-            .pi: defaults.string(forKey: PreferenceKeys.piReasoning) ?? ""
+            .pi: defaults.string(forKey: PreferenceKeys.piReasoning) ?? "",
+            .githubCopilot: defaults.string(forKey: PreferenceKeys.copilotReasoning) ?? ""
         ]
     }
 

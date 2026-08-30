@@ -25,6 +25,8 @@ final class AppController: ObservableObject {
     @Published private(set) var capsLockSuppressionError: String?
     @Published private(set) var isNotificationAuthorized: Bool?
     @Published private(set) var isShowingDemoData = false
+    @Published private(set) var isTelemetryEnabled: Bool
+    @Published private(set) var isTelemetryConfigured: Bool
 
     private let defaults: UserDefaults
     private let monitor: CapsLockMonitor
@@ -34,6 +36,7 @@ final class AppController: ObservableObject {
     private let summarizer: SummaryOrchestrator
     private let historyStore: HistoryStore
     private let notifications: NotificationServicing
+    private let telemetry: TelemetryClient
     private var hasStarted = false
     private var sessionCountTask: Task<Void, Never>?
     /// The currently running collection/summary workflow, if any. Keeping one handle lets
@@ -56,8 +59,13 @@ final class AppController: ObservableObject {
         runner: ProcessRunning = ProcessRunner(),
         historyStore: HistoryStore = HistoryStore(),
         notifications: NotificationServicing = NotificationService(),
+        telemetry: TelemetryClient? = nil,
         showsInMemoryDemoData: Bool = ProcessInfo.processInfo.arguments.contains("--capsstack-demo-data")
     ) {
+        // Resolve CLI-specific defaults before any preference type registers its fallback domain.
+        // This keeps a fresh install independent from whichever of Codex or Claude Code happens
+        // to be present, while preserving every value already stored by the user.
+        CLIInitialPreferences.applyIfNeeded(defaults: defaults, resolver: resolver)
         self.defaults = defaults
         self.monitor = monitor
         self.resolver = resolver
@@ -66,11 +74,17 @@ final class AppController: ObservableObject {
         self.summarizer = SummaryOrchestrator(resolver: resolver, runner: runner)
         self.historyStore = historyStore
         self.notifications = notifications
+        let telemetry = telemetry ?? PostHogTelemetryClient(defaults: defaults)
+        self.telemetry = telemetry
         self.showsInMemoryDemoData = showsInMemoryDemoData
         let feature = CapsStackFeaturePreferences(defaults: defaults)
+        let telemetryPreferences = TelemetryPreferences(defaults: defaults)
         self.isCapsStackEnabled = feature.isEnabled
         self.isSuppressingOriginalCapsLock = feature.suppressOriginalCapsLock
         self.capsLockSuppressionError = nil
+        self.isTelemetryConfigured = telemetry.isConfigured
+        self.isTelemetryEnabled = telemetry.isConfigured && telemetryPreferences.isEnabled
+        telemetry.setEnabled(self.isTelemetryEnabled)
     }
 
     var stateTitle: String {
@@ -98,6 +112,8 @@ final class AppController: ObservableObject {
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
+
+        telemetry.capture(.applicationStarted)
 
         reloadHistory()
         observeDefaults()
@@ -162,6 +178,24 @@ final class AppController: ObservableObject {
         applyBackgroundKeepAlive()
     }
 
+    func setTelemetryEnabled(_ enabled: Bool) {
+        defaults.set(enabled, forKey: PreferenceKeys.telemetryEnabled)
+        guard isTelemetryConfigured else {
+            isTelemetryEnabled = false
+            return
+        }
+
+        telemetry.setEnabled(enabled)
+        isTelemetryEnabled = telemetry.isEnabled
+        if isTelemetryEnabled {
+            telemetry.capture(.telemetryEnabled)
+        }
+    }
+
+    func recordHistoryAction(_ action: TelemetryConsumptionAction, for entry: HistoryEntry) {
+        telemetry.capture(.briefConsumed(action: action, status: entry.status))
+    }
+
     func setSuppressOriginalCapsLock(_ enabled: Bool) {
         defaults.set(enabled, forKey: PreferenceKeys.suppressOriginalCapsLock)
         applyCapsLockSuppression()
@@ -205,6 +239,7 @@ final class AppController: ObservableObject {
         phase = .summarizing
         lastError = nil
         let workflowID = beginWorkflow()
+        telemetry.capture(.summaryRetryStarted)
         let task = Task { [weak self] in
             guard let self else { return }
             defer { self.finishWorkflow(workflowID) }
@@ -214,9 +249,14 @@ final class AppController: ObservableObject {
                     throw HistoryStoreError.pendingArtifactNotFound(pendingID)
                 }
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
-                await summarize(batch: batch, replacing: entry, workflowID: workflowID)
+                await summarize(batch: batch, replacing: entry, workflowID: workflowID, isRetry: true)
             } catch {
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+                telemetry.capture(.summaryRetryFailed(
+                    stage: .retry,
+                    code: TelemetryFailureCode.from(error: error),
+                    provider: entry.provider
+                ))
                 phase = .failed
                 lastError = error.localizedDescription
                 await notifications.notifyFailure(message: error.localizedDescription, interval: entry.interval)
@@ -323,6 +363,7 @@ final class AppController: ObservableObject {
     }
 
     func startProviderTest(_ kind: CLIKind) {
+        guard kind.supportsSummarization else { return }
         guard testingProvider == nil else { return }
         providerTestGeneration &+= 1
         let generation = providerTestGeneration
@@ -379,6 +420,7 @@ final class AppController: ObservableObject {
             issues: []
         )
         let preferences = SummarizerPreferences(defaults: defaults)
+        var succeeded = false
 
         do {
             _ = try await summarizer.summarize(
@@ -390,12 +432,14 @@ final class AppController: ObservableObject {
                 reasoningOverrides: preferences.reasoningOverrides
             )
             guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
+            succeeded = true
             providerTestMessages[kind] = "成功"
         } catch {
             guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
             providerTestMessages[kind] = "失敗: \(error.localizedDescription)"
         }
         guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
+        telemetry.capture(.providerTested(provider: kind, succeeded: succeeded))
         await refreshCLIStatuses()
     }
 
@@ -435,6 +479,14 @@ final class AppController: ObservableObject {
             applyCapsLockSuppression()
         }
         applyBackgroundKeepAlive()
+        applyTelemetryPreference()
+    }
+
+    private func applyTelemetryPreference() {
+        let desired = TelemetryPreferences(defaults: defaults).isEnabled
+        guard desired != isTelemetryEnabled else { return }
+        telemetry.setEnabled(desired)
+        isTelemetryEnabled = telemetry.isEnabled
     }
 
     private func refreshEnabledState() {
@@ -516,8 +568,14 @@ final class AppController: ObservableObject {
 
         phase = .summarizing
         let quickMemo = QuickMemoPreferences(defaults: defaults).trimmedText
-        let primary = SummarizerPreferences(defaults: defaults).primary
+        let summarizerPreferences = SummarizerPreferences(defaults: defaults)
+        let primary = summarizerPreferences.primary
         let sources = CollectorPreferences(defaults: defaults).enabledSources
+        telemetry.capture(.briefRequested(
+            awayDuration: interval.duration,
+            sourceCount: sources.count,
+            memoPresent: quickMemo != nil
+        ))
         let workflowID = beginWorkflow()
         let task = Task { [weak self] in
             guard let self else { return }
@@ -526,16 +584,27 @@ final class AppController: ObservableObject {
             var batch = await collect(interval: interval, sources: sources)
             guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
             batch.quickMemo = quickMemo
-            batch = AwayBatchPreparation.addingSyntheticMemoSession(batch, provider: primary)
+            let memoProvider = summarizer.preferredProvider(for: summarizerPreferences) ?? primary
+            batch = AwayBatchPreparation.addingSyntheticMemoSession(batch, provider: memoProvider)
 
             activeSessionCount = batch.sessions.count
 
             if batch.sessions.isEmpty {
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+                telemetry.capture(.briefEmpty(
+                    awayDuration: interval.duration,
+                    sourceCount: sources.count,
+                    issueCount: batch.issues.count
+                ))
                 do {
                     try saveEmptyHistory(batch: batch, requestedSources: sources)
                     phase = .idle
                 } catch {
+                    telemetry.capture(.briefFailed(
+                        stage: .persistence,
+                        code: TelemetryFailureCode.from(error: error),
+                        provider: primary
+                    ))
                     lastError = error.localizedDescription
                     phase = .failed
                     await notifications.notifyFailure(
@@ -559,6 +628,11 @@ final class AppController: ObservableObject {
                 await summarize(batch: batch, replacing: pending, workflowID: workflowID)
             } catch {
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+                telemetry.capture(.briefFailed(
+                    stage: .persistence,
+                    code: TelemetryFailureCode.from(error: error),
+                    provider: primary
+                ))
                 lastError = error.localizedDescription
                 phase = .failed
                 reloadHistory()
@@ -572,19 +646,39 @@ final class AppController: ObservableObject {
     private func summarize(
         batch: CollectionBatch,
         replacing pendingEntry: HistoryEntry,
-        workflowID: UInt
+        workflowID: UInt,
+        isRetry: Bool = false
     ) async {
+        let summaryStartedAt = Date()
+        var failureStage: TelemetryFailureStage = .summarization
         do {
             let outcome = try await summarizer.summarize(
                 batch: batch,
                 preferences: SummarizerPreferences(defaults: defaults)
             )
             guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+            failureStage = .persistence
             _ = try historyStore.saveCompleted(
                 batch: batch,
                 outcome: outcome,
                 replacingPendingID: pendingEntry.pendingArtifactID
             )
+            let summaryDuration = Date().timeIntervalSince(summaryStartedAt)
+            if isRetry {
+                telemetry.capture(.summaryRetryCompleted(
+                    provider: outcome.provider,
+                    fallbackUsed: outcome.fallbackUsed,
+                    summaryDuration: summaryDuration
+                ))
+            } else {
+                telemetry.capture(.briefCompleted(
+                    provider: outcome.provider,
+                    fallbackUsed: outcome.fallbackUsed,
+                    awayDuration: batch.interval.duration,
+                    sessionCount: batch.sessions.count,
+                    summaryDuration: summaryDuration
+                ))
+            }
             reloadHistory()
             phase = .idle
             lastError = nil
@@ -607,6 +701,20 @@ final class AppController: ObservableObject {
                 quickMemo: pendingEntry.quickMemo
             )
             guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+            let failureCode = TelemetryFailureCode.from(error: error)
+            if isRetry {
+                telemetry.capture(.summaryRetryFailed(
+                    stage: failureStage,
+                    code: failureCode,
+                    provider: SummarizerPreferences(defaults: defaults).primary
+                ))
+            } else {
+                telemetry.capture(.briefFailed(
+                    stage: failureStage,
+                    code: failureCode,
+                    provider: SummarizerPreferences(defaults: defaults).primary
+                ))
+            }
             var presentedErrorMessage = summaryErrorMessage
             do {
                 _ = try historyStore.replace(failed)

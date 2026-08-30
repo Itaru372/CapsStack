@@ -21,7 +21,35 @@ struct SummaryOrchestrator {
             .codex: CodexSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
             .claudeCode: ClaudeCodeSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
             .opencode: OpenCodeSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
-            .pi: PiSummaryProvider(resolver: resolver, runner: runner, timeout: timeout)
+            .pi: PiSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
+            .githubCopilot: SafeHeadlessSummaryProvider(
+                kind: .githubCopilot,
+                strategy: .githubCopilot,
+                resolver: resolver,
+                runner: runner,
+                timeout: timeout
+            ),
+            .kiloCode: SafeHeadlessSummaryProvider(
+                kind: .kiloCode,
+                strategy: .kiloCode,
+                resolver: resolver,
+                runner: runner,
+                timeout: timeout
+            ),
+            .goose: SafeHeadlessSummaryProvider(
+                kind: .goose,
+                strategy: .goose,
+                resolver: resolver,
+                runner: runner,
+                timeout: timeout
+            ),
+            .qwenCode: SafeHeadlessSummaryProvider(
+                kind: .qwenCode,
+                strategy: .qwenCode,
+                resolver: resolver,
+                runner: runner,
+                timeout: timeout
+            )
         ]
     }
 
@@ -30,39 +58,81 @@ struct SummaryOrchestrator {
             return SummaryOutcome(document: .empty, provider: preferences.primary, fallbackUsed: false)
         }
 
-        do {
-            let document = try await summarizeWithProvider(
-                kind: preferences.primary,
-                batch: batch,
-                executableOverride: preferences.executableOverride(for: preferences.primary),
-                modelOverride: preferences.modelOverride(for: preferences.primary),
-                reasoningOverride: preferences.reasoningOverride(for: preferences.primary)
-            )
-            return SummaryOutcome(document: document, provider: preferences.primary, fallbackUsed: false)
-        } catch let primaryError {
-            try Task.checkCancellation()
-            guard preferences.automaticFallback else {
-                throw primaryError
-            }
+        let primaryOverride = preferences.executableOverride(for: preferences.primary)
+        let primaryProvider = providers[preferences.primary]
+        let primaryAvailable = primaryProvider?.isAvailable(executableOverride: primaryOverride) ?? false
+        let primaryError: Error
 
-            var lastError: Error = primaryError
-            for fallbackKind in CLIKind.allCases where fallbackKind != preferences.primary {
-                guard providers[fallbackKind] != nil else { continue }
-                do {
-                    let document = try await summarizeWithProvider(
-                        kind: fallbackKind,
-                        batch: batch,
-                        executableOverride: preferences.executableOverride(for: fallbackKind),
-                        modelOverride: preferences.modelOverride(for: fallbackKind),
-                        reasoningOverride: preferences.reasoningOverride(for: fallbackKind)
-                    )
-                    return SummaryOutcome(document: document, provider: fallbackKind, fallbackUsed: true)
-                } catch {
-                    try Task.checkCancellation()
-                    lastError = error
-                }
+        if primaryAvailable {
+            do {
+                let document = try await summarizeWithProvider(
+                    kind: preferences.primary,
+                    batch: batch,
+                    executableOverride: primaryOverride,
+                    modelOverride: preferences.modelOverride(for: preferences.primary),
+                    reasoningOverride: preferences.reasoningOverride(for: preferences.primary)
+                )
+                return SummaryOutcome(document: document, provider: preferences.primary, fallbackUsed: false)
+            } catch {
+                primaryError = error
             }
-            throw lastError
+        } else if primaryProvider == nil {
+            primaryError = SummaryProviderError.noProviderAvailable
+        } else {
+            // Do not invoke a missing executable just to discover that it is missing. This is
+            // important for a Claude-only or Codex-only machine where the other provider is only
+            // present as an optional fallback.
+            primaryError = SummaryProviderError.executableNotFound(preferences.primary)
+        }
+
+        try Task.checkCancellation()
+        guard preferences.automaticFallback else {
+            throw primaryError
+        }
+
+        var lastError: Error = primaryError
+        var attemptedFallback = false
+        for fallbackKind in CLIKind.summarizerCases where fallbackKind != preferences.primary {
+            guard let fallbackProvider = providers[fallbackKind] else { continue }
+            let executableOverride = preferences.executableOverride(for: fallbackKind)
+            guard fallbackProvider.isAvailable(executableOverride: executableOverride) else {
+                continue
+            }
+            attemptedFallback = true
+            do {
+                let document = try await summarizeWithProvider(
+                    kind: fallbackKind,
+                    batch: batch,
+                    executableOverride: executableOverride,
+                    modelOverride: preferences.modelOverride(for: fallbackKind),
+                    reasoningOverride: preferences.reasoningOverride(for: fallbackKind)
+                )
+                return SummaryOutcome(document: document, provider: fallbackKind, fallbackUsed: true)
+            } catch {
+                try Task.checkCancellation()
+                lastError = error
+            }
+        }
+        // If every fallback is missing, preserve the primary error unless the primary itself
+        // is unavailable. In that case there is no provider at all, so report the neutral
+        // error instead of making Codex or Claude appear to depend on the other one.
+        if !attemptedFallback, !primaryAvailable {
+            throw SummaryProviderError.noProviderAvailable
+        }
+        throw lastError
+    }
+
+    /// Selects the first provider that can actually run for the current preferences. This is
+    /// used for synthetic memo-only sessions so their source reflects the provider that will
+    /// summarize them when a stale primary setting points at an uninstalled CLI.
+    func preferredProvider(for preferences: SummarizerPreferences) -> CLIKind? {
+        var candidates = [preferences.primary]
+        if preferences.automaticFallback {
+            candidates.append(contentsOf: CLIKind.summarizerCases.filter { $0 != preferences.primary })
+        }
+        return candidates.first { kind in
+            guard let provider = providers[kind] else { return false }
+            return provider.isAvailable(executableOverride: preferences.executableOverride(for: kind))
         }
     }
 
@@ -115,22 +185,53 @@ struct SummaryOrchestrator {
         guard requiresIntegration else { return documents[0] }
 
         // The raw records have already been summarized per session/chunk. Feed those compact
-        // summaries back to the same provider for a chronological final integration pass.
-        let perDocumentLimit = max(32, (maxInputBytes / 2) / max(1, documents.count))
-        let summaryArtifacts = documents.enumerated().map { index, document in
-            let encodedDocument = encode(document)
-            let boundedDocument = truncatedUTF8(encodedDocument, limit: perDocumentLimit)
-            return CollectedSessionArtifact(
-                id: "summary-chunk-\(index + 1)",
-                provider: kind,
-                workingDirectory: nil,
-                events: [CollectedEvent(
-                    timestamp: batch.interval.start.addingTimeInterval(TimeInterval(index)),
-                    kind: "chunk-summary",
-                    content: boundedDocument
-                )],
-                wasTruncated: boundedDocument.utf8.count < encodedDocument.utf8.count
+        // summaries back to the same provider for a chronological final integration pass. The
+        // project grouping can expand one document into many payloads, so the budget is based on
+        // the flattened payload count rather than the number of intermediate documents.
+        let payloads = documents.enumerated().flatMap { documentIndex, document in
+            let projectPayloads: [(id: String, content: String, sessions: [SessionSummary])]
+            if document.projects.isEmpty {
+                projectPayloads = [("legacy", encode(document), document.sessions)]
+            } else {
+                projectPayloads = document.projects.enumerated().map { projectIndex, project in
+                    ("project-\(projectIndex + 1)", encode(project), project.sessions)
+                }
+            }
+
+            return projectPayloads.map { payload in
+                (
+                    id: "summary-chunk-\(documentIndex + 1)-\(payload.id)",
+                    content: payload.content,
+                    sessions: payload.sessions
+                )
+            }
+        }.enumerated().map { ordinal, payload in
+            (
+                id: payload.id,
+                content: payload.content,
+                sessions: payload.sessions,
+                ordinal: ordinal
             )
+        }
+        let perPayloadLimit = max(1, (maxInputBytes / 2) / max(1, payloads.count))
+        func makeSummaryArtifacts(contentLimit: Int) -> [CollectedSessionArtifact] {
+            payloads.map { payload in
+                let boundedContent = truncatedUTF8(payload.content, limit: contentLimit)
+                return CollectedSessionArtifact(
+                    id: payload.id,
+                    provider: kind,
+                    workingDirectory: originalWorkingDirectory(
+                        for: payload.sessions,
+                        in: batch
+                    ),
+                    events: [CollectedEvent(
+                        timestamp: batch.interval.start.addingTimeInterval(TimeInterval(payload.ordinal)),
+                        kind: "chunk-summary",
+                        content: boundedContent
+                    )],
+                    wasTruncated: boundedContent.utf8.count < payload.content.utf8.count
+                )
+            }
         }
         let omissionNotice = omittedChunkCount > 0
             ? "入力上限により、中間の要約チャンクを\(omittedChunkCount)個省略しました。"
@@ -139,27 +240,67 @@ struct SummaryOrchestrator {
         if let omissionNotice {
             integrationIssues.append(CollectionIssue(provider: kind, message: omissionNotice))
         }
-        let integrationBatch = CollectionBatch(
-            interval: batch.interval,
-            sessions: summaryArtifacts,
-            issues: integrationIssues,
-            quickMemo: batch.quickMemo.map { truncatedUTF8($0, limit: maxInputBytes / 8) }
-        )
+        let makeIntegrationBatch: ([CollectedSessionArtifact], [CollectionIssue]) -> CollectionBatch = { artifacts, issues in
+            CollectionBatch(
+                interval: batch.interval,
+                sessions: artifacts,
+                issues: issues,
+                quickMemo: batch.quickMemo.map { truncatedUTF8($0, limit: maxInputBytes / 8) }
+            )
+        }
+
+        var contentLimit = perPayloadLimit
+        var summaryArtifacts = makeSummaryArtifacts(contentLimit: contentLimit)
+        var integrationBatch = makeIntegrationBatch(summaryArtifacts, integrationIssues)
+        var omittedProjectCount = 0
+
+        // Account for JSON metadata, issues, and the memo as well as event content. If the
+        // flattened project payloads still exceed the hard cap, shrink their content first and
+        // then omit the oldest tail explicitly rather than sending an oversized request.
+        while encodedSize(of: integrationBatch) > maxInputBytes {
+            if contentLimit > 1 {
+                contentLimit = max(1, contentLimit / 2)
+                summaryArtifacts = makeSummaryArtifacts(contentLimit: contentLimit)
+            } else if !summaryArtifacts.isEmpty {
+                summaryArtifacts.removeLast()
+                omittedProjectCount += 1
+            } else {
+                break
+            }
+            integrationBatch = makeIntegrationBatch(summaryArtifacts, integrationIssues)
+        }
+
+        let integrationOmissionNotice = omittedProjectCount > 0
+            ? "統合入力上限により、プロジェクト要約を一部省略しました。"
+            : nil
+        if let integrationOmissionNotice {
+            integrationIssues.append(CollectionIssue(provider: kind, message: integrationOmissionNotice))
+            integrationBatch = makeIntegrationBatch(summaryArtifacts, integrationIssues)
+            // The notice itself consumes a small amount of the cap. Keep the final batch bounded
+            // even when adding it forces one more payload to be removed.
+            while encodedSize(of: integrationBatch) > maxInputBytes, !summaryArtifacts.isEmpty {
+                summaryArtifacts.removeLast()
+                omittedProjectCount += 1
+                integrationBatch = makeIntegrationBatch(summaryArtifacts, integrationIssues)
+            }
+        }
         let integrated = try await provider.summarize(
             batch: integrationBatch,
             executableOverride: executableOverride,
             modelOverride: modelOverride,
             reasoningOverride: reasoningOverride
         )
-        guard let omissionNotice else { return integrated }
+        let omissionNotices = [omissionNotice, integrationOmissionNotice].compactMap { $0 }
+        guard !omissionNotices.isEmpty else { return integrated }
         return SummaryDocument(
             overview: integrated.overview,
             progress: integrated.progress,
             currentState: integrated.currentState,
             decisions: integrated.decisions,
-            blockers: integrated.blockers + [omissionNotice],
+            blockers: integrated.blockers + omissionNotices,
             nextSteps: integrated.nextSteps,
-            sessions: integrated.sessions
+            sessions: integrated.sessions,
+            projects: integrated.projects
         )
     }
 
@@ -299,5 +440,28 @@ struct SummaryOrchestrator {
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(document) else { return document.overview }
         return String(decoding: data, as: UTF8.self)
+    }
+
+    private func encode(_ project: ProjectSummary) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(project) else { return project.summary }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func originalWorkingDirectory(
+        for summaries: [SessionSummary],
+        in batch: CollectionBatch
+    ) -> String? {
+        for summary in summaries {
+            if let match = batch.sessions.first(where: { artifact in
+                summary.sessionID == artifact.id
+                    || summary.sessionID.hasPrefix("\(artifact.id)#")
+                    || artifact.id.hasPrefix("\(summary.sessionID)#")
+            }), let directory = match.workingDirectory {
+                return directory
+            }
+        }
+        return nil
     }
 }

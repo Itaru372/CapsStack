@@ -26,9 +26,21 @@ final result: passed
 - The fixed-width dark sidebar contains 収集元, 要約担当, 一般, 通知, ホットキー, データ管理, and 詳細設定.
 - The search field filters categories and keeps the detail pane synchronized with the visible selection.
 - Collector rows preserve independent toggles plus runtime log-directory/readability status.
+- Kilo Code、Goose、Qwen Code、Continue、Gemini CLIのcollector rowsは、各公式サイトまたは公式GitHub組織から取得して同梱した正方形画像を表示し、画像を読めない場合はSF Symbolsへフォールバックする。
 - Each collector card is a full-width toggle target, and provider tests show an in-progress state,
   prevent competing tests, expose a cancel action, and keep the result visible after completion.
 - Summary assignment, automatic fallback, general feature/background/accessibility controls, notification authorization/system-settings handoff, built-in shortcuts, local-data management, executable overrides, model overrides, reasoning overrides, and provider tests remain functional.
+- Anonymous telemetry is no longer a persistent settings toggle; consent is presented during initial setup.
+- General settings can reopen setup so collector, summarizer, and telemetry consent choices remain revisable.
+
+### Setup
+
+- First launch presents a four-step setup wizard in the main window before history.
+- Detected collectors are preselected and the summarizer can be chosen from installed CLIs. A summarizer is required, while memo-only use remains available when no collector history is detected.
+- Anonymous telemetry is explicitly shown as opt-in and defaults to OFF; builds without a configured destination explain that no events are sent.
+- The final section explains the Caps Lock ON/OFF workflow before entering history.
+- Each step fits the default 1120×740 window without scrolling and uses Back/Next navigation instead of placing every setting on one page.
+- Detected collector and summarizer choices use uniform-height rows so their control frames remain visually aligned.
 
 ### Native chrome
 
@@ -45,7 +57,7 @@ The demo history is opt-in and memory-only. It is enabled for this local verific
 ## Verification
 
 - `swift build --product CapsStack -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors` passed.
-- `swift test` passed: 59 tests, 0 failures. This includes controller end-to-end success/failure/empty-source/manual-away flows, corrupted history, bounded process I/O and timeout termination, summary fallback/chunk limits, UTF-8 limits, portable export naming, and view rendering.
+- `swift test` passed: 88 tests, 0 failures. This includes controller end-to-end success/failure/empty-source/manual-away flows, corrupted history, bounded process I/O and timeout termination, summary fallback/chunk limits, UTF-8 limits, portable export naming, agent collector/provider safety boundaries, and view rendering.
 - `CAPSSTACK_DEMO_DATA=1 ./script/build_and_run.sh --verify` built and launched the packaged app successfully.
 - The development app bundle and the app staged for the isolated Release package passed deep code-signature verification. The unsigned test PKG contains the app, bundled `capsstack` helper, icon, resource bundle, and Info.plist; Developer ID signing/notarization requires external identities.
 - Real isolated Codex execution and OpenCode session collection succeeded. OpenCode summary invocation reached the configured provider and reported its unavailable local endpoint rather than hanging or corrupting history.

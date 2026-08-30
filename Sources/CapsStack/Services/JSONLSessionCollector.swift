@@ -7,14 +7,20 @@ final class JSONLSessionCollector: SessionCollector {
     private let maxFileBytes: Int
     private let maxLineBytes: Int
     private let maxFiles: Int
+    private let allowedFileNames: Set<String>?
+    private let allowedTopLevelDirectories: Set<String>?
 
+    /// `allowedTopLevelDirectories` prevents a provider root that also contains configuration
+    /// state from being treated as an archive of transcripts.
     init(
         provider: CLIKind,
         rootDirectory: URL,
         fileManager: FileManager = .default,
         maxFileBytes: Int = 4 * 1024 * 1024,
         maxLineBytes: Int = 512 * 1024,
-        maxFiles: Int = 2_000
+        maxFiles: Int = 2_000,
+        allowedFileNames: Set<String>? = nil,
+        allowedTopLevelDirectories: Set<String>? = nil
     ) {
         self.provider = provider
         self.rootDirectory = rootDirectory
@@ -22,6 +28,8 @@ final class JSONLSessionCollector: SessionCollector {
         self.maxFileBytes = max(64 * 1024, maxFileBytes)
         self.maxLineBytes = max(4 * 1024, maxLineBytes)
         self.maxFiles = max(1, maxFiles)
+        self.allowedFileNames = allowedFileNames
+        self.allowedTopLevelDirectories = allowedTopLevelDirectories
     }
 
     func collect(interval: AwayInterval) -> CollectionResult {
@@ -70,6 +78,7 @@ final class JSONLSessionCollector: SessionCollector {
         for file in filesToRead {
             do {
                 let read = try read(file: file)
+                var groupingKeysBySessionID: [String: Set<String>] = [:]
                 if read.wasTruncated {
                     issues.append(CollectionIssue(
                         provider: provider,
@@ -78,7 +87,8 @@ final class JSONLSessionCollector: SessionCollector {
                 }
                 var invalidLines = 0
                 var oversizedLines = 0
-                for rawLine in read.data.split(separator: 10, omittingEmptySubsequences: true) {
+                let records = structuredRecords(in: read.data)
+                for rawLine in records.lines {
                     if rawLine.count > maxLineBytes {
                         oversizedLines += 1
                         continue
@@ -94,7 +104,26 @@ final class JSONLSessionCollector: SessionCollector {
                     }
 
                     let sessionID = record.sessionID ?? file.deletingPathExtension().lastPathComponent
-                    var session = grouped[sessionID] ?? MutableSession(
+                    let groupingKey: String
+                    if let workingDirectory = record.workingDirectory {
+                        let projectKey = URL(
+                            fileURLWithPath: workingDirectory,
+                            isDirectory: true
+                        ).standardizedFileURL.path
+                        groupingKey = "\(projectKey)\u{1f}\(sessionID)"
+                        if let provisionalKey = groupingKeysBySessionID[sessionID]?.onlyElement,
+                           provisionalKey.hasPrefix("file:"),
+                           let provisional = grouped.removeValue(forKey: provisionalKey) {
+                            grouped[groupingKey] = provisional
+                            groupingKeysBySessionID[sessionID] = [groupingKey]
+                        }
+                    } else if let onlyKey = groupingKeysBySessionID[sessionID]?.onlyElement {
+                        groupingKey = onlyKey
+                    } else {
+                        groupingKey = "file:\(file.path)\u{1f}\(sessionID)"
+                    }
+                    groupingKeysBySessionID[sessionID, default: []].insert(groupingKey)
+                    var session = grouped[groupingKey] ?? MutableSession(
                         id: sessionID,
                         workingDirectory: record.workingDirectory,
                         wasTruncated: false
@@ -108,7 +137,21 @@ final class JSONLSessionCollector: SessionCollector {
                         session.workingDirectory = record.workingDirectory
                     }
                     session.wasTruncated = session.wasTruncated || read.wasTruncated
-                    grouped[sessionID] = session
+                    grouped[groupingKey] = session
+                }
+                for object in records.objects {
+                    guard let record = parse(
+                        dictionary: object,
+                        fallbackDate: read.modificationDate,
+                        interval: interval
+                    ) else { continue }
+                    append(
+                        record,
+                        file: file,
+                        wasTruncated: read.wasTruncated,
+                        grouped: &grouped,
+                        groupingKeysBySessionID: &groupingKeysBySessionID
+                    )
                 }
                 if invalidLines > 0 {
                     issues.append(CollectionIssue(
@@ -158,6 +201,11 @@ final class JSONLSessionCollector: SessionCollector {
             guard url.pathExtension.lowercased() == "jsonl" || url.pathExtension.lowercased() == "json" else {
                 continue
             }
+            if let allowedFileNames, !allowedFileNames.contains(url.lastPathComponent) { continue }
+            if let allowedTopLevelDirectories,
+               !isUnderAllowedTopLevelDirectory(url, directories: allowedTopLevelDirectories) {
+                continue
+            }
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
                 continue
             }
@@ -166,6 +214,16 @@ final class JSONLSessionCollector: SessionCollector {
         return result.sorted {
             (modificationDate(of: $0) ?? .distantPast) > (modificationDate(of: $1) ?? .distantPast)
         }
+    }
+
+    private func isUnderAllowedTopLevelDirectory(_ url: URL, directories: Set<String>) -> Bool {
+        let rootPath = rootDirectory.standardizedFileURL.path
+        let filePath = url.standardizedFileURL.path
+        let separator = rootPath == "/" ? "/" : rootPath + "/"
+        guard filePath.hasPrefix(separator) else { return false }
+        let relativePath = String(filePath.dropFirst(separator.count))
+        guard let firstComponent = relativePath.split(separator: "/").first else { return false }
+        return directories.contains(String(firstComponent))
     }
 
     private func modificationDate(of file: URL) -> Date? {
@@ -201,13 +259,25 @@ final class JSONLSessionCollector: SessionCollector {
             return nil
         }
 
+        return parse(dictionary: dictionary, fallbackDate: fallbackDate, interval: interval)
+    }
+
+    private func parse(
+        dictionary: [String: Any],
+        fallbackDate: Date,
+        interval: AwayInterval
+    ) -> ParsedRecord? {
+
         let timestamp = dateValue(Self.findValue(in: dictionary, named: Self.timestampKeys)) ?? fallbackDate
         guard timestamp >= interval.start && timestamp <= interval.end else { return nil }
 
         let kind = stringValue(Self.findValue(in: dictionary, named: Self.kindKeys)) ?? "event"
         let sessionID = stringValue(Self.findValue(in: dictionary, named: Self.sessionKeys))
         let workingDirectory = stringValue(Self.findValue(in: dictionary, named: Self.workingDirectoryKeys))
-        let content = Self.contentValue(in: dictionary) ?? String(data: line, encoding: .utf8) ?? ""
+        let content = Self.contentValue(in: dictionary)
+            ?? (try? JSONSerialization.data(withJSONObject: dictionary, options: [.sortedKeys]))
+                .map { String(decoding: $0, as: UTF8.self) }
+            ?? ""
         return ParsedRecord(
             timestamp: timestamp,
             kind: kind,
@@ -215,6 +285,62 @@ final class JSONLSessionCollector: SessionCollector {
             sessionID: sessionID,
             workingDirectory: workingDirectory
         )
+    }
+
+    private func structuredRecords(in data: Data) -> (lines: [Data.SubSequence], objects: [[String: Any]]) {
+        guard let object = try? JSONSerialization.jsonObject(with: data, options: []) else {
+            return (data.split(separator: 10, omittingEmptySubsequences: true), [])
+        }
+
+        var objects: [[String: Any]] = []
+        if let dictionary = object as? [String: Any] {
+            let inherited = dictionary.filter { key, _ in
+                Self.sessionKeys.contains(key.lowercased())
+                    || Self.workingDirectoryKeys.contains(key.lowercased())
+            }
+            if let messages = dictionary["messages"] as? [[String: Any]] {
+                objects = messages.map { inherited.merging($0) { _, child in child } }
+            } else {
+                objects = [dictionary]
+            }
+        } else if let array = object as? [[String: Any]] {
+            objects = array
+        }
+        return ([], objects)
+    }
+
+    private func append(
+        _ record: ParsedRecord,
+        file: URL,
+        wasTruncated: Bool,
+        grouped: inout [String: MutableSession],
+        groupingKeysBySessionID: inout [String: Set<String>]
+    ) {
+        let sessionID = record.sessionID ?? file.deletingPathExtension().lastPathComponent
+        let groupingKey: String
+        if let workingDirectory = record.workingDirectory {
+            let projectKey = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+                .standardizedFileURL.path
+            groupingKey = "\(projectKey)\u{1f}\(sessionID)"
+        } else if let onlyKey = groupingKeysBySessionID[sessionID]?.onlyElement {
+            groupingKey = onlyKey
+        } else {
+            groupingKey = "file:\(file.path)\u{1f}\(sessionID)"
+        }
+        groupingKeysBySessionID[sessionID, default: []].insert(groupingKey)
+        var session = grouped[groupingKey] ?? MutableSession(
+            id: sessionID,
+            workingDirectory: record.workingDirectory,
+            wasTruncated: false
+        )
+        session.events.append(CollectedEvent(
+            timestamp: record.timestamp,
+            kind: record.kind,
+            content: record.content
+        ))
+        if session.workingDirectory == nil { session.workingDirectory = record.workingDirectory }
+        session.wasTruncated = session.wasTruncated || wasTruncated
+        grouped[groupingKey] = session
     }
 
     private static func truncatedUTF8(_ value: String, limit: Int) -> String {
@@ -297,6 +423,12 @@ final class JSONLSessionCollector: SessionCollector {
     private static let workingDirectoryKeys: Set<String> = [
         "cwd", "working_directory", "workingdirectory", "project_dir", "projectdir"
     ]
+}
+
+private extension Set {
+    var onlyElement: Element? {
+        count == 1 ? first : nil
+    }
 }
 
 private struct ReadFile {

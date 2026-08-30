@@ -33,6 +33,11 @@ final class BrandRenderingTests: XCTestCase {
                 .background(BrandPalette.BriefTheme.canvas),
             size: CGSize(width: 980, height: 680)
         )
+        let setup = try render(
+            SetupView(controller: controller, isCompleted: .constant(false))
+                .frame(width: 1120, height: 740),
+            size: CGSize(width: 1120, height: 740)
+        )
         let history = try render(
             HistoryView(controller: controller)
                 .frame(width: 1120, height: 740)
@@ -42,6 +47,7 @@ final class BrandRenderingTests: XCTestCase {
 
         XCTAssertEqual(quickMemo.size, CGSize(width: 440, height: 230))
         XCTAssertEqual(settings.size, CGSize(width: 980, height: 680))
+        XCTAssertEqual(setup.size, CGSize(width: 1120, height: 740))
         XCTAssertEqual(history.size, CGSize(width: 1120, height: 740))
 
         if let outputPath = ProcessInfo.processInfo.environment["CAPSSTACK_QA_OUTPUT"] {
@@ -52,6 +58,7 @@ final class BrandRenderingTests: XCTestCase {
             )
             try writePNG(quickMemo, to: outputDirectory.appendingPathComponent("quick-memo.png"))
             try writePNG(settings, to: outputDirectory.appendingPathComponent("settings.png"))
+            try writePNG(setup, to: outputDirectory.appendingPathComponent("setup.png"))
             try writePNG(history, to: outputDirectory.appendingPathComponent("history.png"))
         }
     }
@@ -94,7 +101,17 @@ final class BrandRenderingTests: XCTestCase {
             decisions: ["招待リンクの有効期限は7日間とする"],
             blockers: ["リカバリーフローのレビュー待ち"],
             nextSteps: ["招待メールの文面をレビュー", "リカバリーフローを実装する"],
-            sessions: []
+            sessions: [],
+            projects: [ProjectSummary(
+                projectID: "project-1",
+                name: "CapsStack",
+                summary: "認証と招待フローの実装が進みました。",
+                sessions: [SessionSummary(
+                    sessionID: "codex:qa-session",
+                    source: "Codex CLI",
+                    summary: "パスキー認証と権限チェックを実装しました。"
+                )]
+            )]
         )
         let session = CollectedSessionArtifact(
             id: "qa-session",

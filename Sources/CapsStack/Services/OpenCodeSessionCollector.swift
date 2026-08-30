@@ -10,29 +10,46 @@ import Foundation
 /// adapter rather than being treated as a drop-in binary alias.
 final class OpenCodeSessionCollector: SessionCollector {
     typealias CommandRunner = (URL, [String], URL?, TimeInterval) -> Data?
+    typealias ExportArguments = (String) -> [String]
 
-    let provider: CLIKind = .opencode
+    let provider: CLIKind
     private let rootDirectory: URL
     private let executableURL: URL?
     private let fileManager: FileManager
     private let maxSessions: Int
     private let collectionTimeout: TimeInterval
     private let commandRunner: CommandRunner
+    private let listArguments: [String]
+    private let exportArguments: ExportArguments
+    private let allowsFileFallback: Bool
+
+    private var providerName: String { provider.displayName }
 
     init(
+        provider: CLIKind = .opencode,
         rootDirectory: URL,
         executableURL: URL?,
         fileManager: FileManager = .default,
         maxSessions: Int = 2_000,
         collectionTimeout: TimeInterval = 30,
-        commandRunner: @escaping CommandRunner = OpenCodeSessionCollector.runCommand
+        commandRunner: @escaping CommandRunner = OpenCodeSessionCollector.runCommand,
+        listArguments: [String]? = nil,
+        exportArguments: ExportArguments? = nil,
+        allowsFileFallback: Bool? = nil
     ) {
+        self.provider = provider
         self.rootDirectory = rootDirectory
         self.executableURL = executableURL
         self.fileManager = fileManager
         self.maxSessions = max(1, maxSessions)
         self.collectionTimeout = max(1, collectionTimeout)
         self.commandRunner = commandRunner
+        self.listArguments = listArguments
+            ?? ["session", "list", "--max-count", String(max(1, maxSessions)), "--format", "json"]
+        self.exportArguments = exportArguments ?? { ["export", $0] }
+        // OpenCode has a historical file fallback. Kilo and Goose are DB-backed and must stay
+        // behind their documented CLI list/export boundaries unless a caller explicitly opts in.
+        self.allowsFileFallback = allowsFileFallback ?? (provider == .opencode)
     }
 
     func collect(interval: AwayInterval) -> CollectionResult {
@@ -49,7 +66,7 @@ final class OpenCodeSessionCollector: SessionCollector {
             }
             return fallbackToFiles(
                 interval: interval,
-                reason: "OpenCode CLIが見つからないため、保存ファイルを補助的に走査しました。"
+                reason: "\(providerName)が見つからないため"
             )
         }
 
@@ -59,14 +76,14 @@ final class OpenCodeSessionCollector: SessionCollector {
             : nil
         let listData = commandRunner(
             executableURL,
-            ["session", "list", "--max-count", String(maxSessions), "--format", "json"],
+            listArguments,
             commandDirectory,
             min(10, collectionTimeout)
         )
         guard let listData else {
             return fallbackToFiles(
                 interval: interval,
-                reason: "OpenCodeのセッション一覧を取得できないため、保存ファイルを補助的に走査しました。"
+                reason: "\(providerName)のセッション一覧を取得できないため"
             )
         }
 
@@ -77,7 +94,7 @@ final class OpenCodeSessionCollector: SessionCollector {
             }
             return fallbackToFiles(
                 interval: interval,
-                reason: "OpenCodeのセッション一覧を解釈できないため、保存ファイルを補助的に走査しました。"
+                reason: "\(providerName)のセッション一覧を解釈できないため"
             )
         }
 
@@ -91,19 +108,19 @@ final class OpenCodeSessionCollector: SessionCollector {
             guard remainingTime > 0 else {
                 issues.append(CollectionIssue(
                     provider: provider,
-                    message: "OpenCodeの収集が\(Int(collectionTimeout))秒を超えたため、残りのセッションを次回へ回しました。"
+                    message: "\(providerName)の収集が\(Int(collectionTimeout))秒を超えたため、残りのセッションを次回へ回しました。"
                 ))
                 break
             }
             guard let exportData = commandRunner(
                 executableURL,
-                ["export", descriptor.id],
+                exportArguments(descriptor.id),
                 commandDirectory,
                 min(10, remainingTime)
             ) else {
                 issues.append(CollectionIssue(
                     provider: provider,
-                    message: "OpenCodeセッションを書き出せませんでした: \(descriptor.id)"
+                    message: "\(providerName)のセッションを書き出せませんでした: \(descriptor.id)"
                 ))
                 continue
             }
@@ -138,12 +155,25 @@ final class OpenCodeSessionCollector: SessionCollector {
     }
 
     private func fallbackToFiles(interval: AwayInterval, reason: String) -> CollectionResult {
+        guard allowsFileFallback else {
+            return CollectionResult(
+                provider: provider,
+                sessions: [],
+                issues: [CollectionIssue(
+                    provider: provider,
+                    message: "\(reason)。DB-backed CLIの保存ファイルは直接解釈しませんでした。"
+                )]
+            )
+        }
         let fileResult = JSONLSessionCollector(provider: provider, rootDirectory: rootDirectory)
             .collect(interval: interval)
         return CollectionResult(
             provider: provider,
             sessions: fileResult.sessions,
-            issues: [CollectionIssue(provider: provider, message: reason)] + fileResult.issues
+            issues: [CollectionIssue(
+                provider: provider,
+                message: "\(reason)、保存ファイルを補助的に走査しました。"
+            )] + fileResult.issues
         )
     }
 

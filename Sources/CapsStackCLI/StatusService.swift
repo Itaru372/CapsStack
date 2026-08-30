@@ -36,7 +36,13 @@ enum CLIStatusService {
         ("Claude Code CLI", "claude"),
         ("OpenCode CLI", "opencode"),
         ("OpenCode 2 CLI", "opencode2"),
-        ("Pi coding agent", "pi")
+        ("Pi coding agent", "pi"),
+        ("GitHub Copilot CLI", "copilot"),
+        ("Kilo Code CLI", "kilo"),
+        ("Goose CLI", "goose"),
+        ("Qwen Code", "qwen"),
+        ("Continue CLI", "cn"),
+        ("Gemini CLI", "gemini")
     ]
 
     static func report(

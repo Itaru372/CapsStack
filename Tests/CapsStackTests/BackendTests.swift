@@ -10,7 +10,11 @@ final class BackendTests: XCTestCase {
                 "CODEX_HOME": "/custom/codex",
                 "CLAUDE_CONFIG_DIR": "/custom/claude",
                 "XDG_DATA_HOME": "/custom/data",
-                "PI_CODING_AGENT_SESSION_DIR": "/custom/pi-sessions"
+                "PI_CODING_AGENT_SESSION_DIR": "/custom/pi-sessions",
+                "COPILOT_HOME": "/custom/copilot",
+                "QWEN_HOME": "/custom/qwen",
+                "QWEN_RUNTIME_DIR": "/custom/qwen-runtime",
+                "GEMINI_CLI_HOME": "/custom/gemini-home"
             ]
         )
 
@@ -18,6 +22,12 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(resolver.logDirectory(for: .claudeCode).path, "/custom/claude/projects")
         XCTAssertEqual(resolver.logDirectory(for: .opencode).path, "/custom/data/opencode")
         XCTAssertEqual(resolver.logDirectory(for: .pi).path, "/custom/pi-sessions")
+        XCTAssertEqual(resolver.logDirectory(for: .githubCopilot).path, "/custom/copilot/session-state")
+        XCTAssertEqual(resolver.logDirectory(for: .kiloCode).path, "/custom/data/kilo")
+        XCTAssertEqual(resolver.logDirectory(for: .goose).path, "/custom/data/goose/sessions")
+        XCTAssertEqual(resolver.logDirectory(for: .qwenCode).path, "/custom/qwen-runtime")
+        XCTAssertEqual(resolver.logDirectory(for: .continueCLI).path, "/Users/test/.continue/sessions")
+        XCTAssertEqual(resolver.logDirectory(for: .geminiCLI).path, "/custom/gemini-home/.gemini/tmp")
     }
 
     func testJSONLCollectorUsesTimeWindowAndKeepsMalformedLineIssue() throws {
@@ -74,6 +84,119 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(claudeResult.sessions[0].provider, .claudeCode)
         XCTAssertEqual(claudeResult.sessions[0].events.count, 1)
         XCTAssertEqual(claudeResult.sessions[0].events[0].content, "inside claude")
+    }
+
+    func testCollectionProjectGroupingSeparatesDirectoriesAndGroupsSessions() throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let projectASession = CollectedSessionArtifact(
+            id: "shared-session",
+            provider: .codex,
+            workingDirectory: "/tmp/project-a",
+            events: [CollectedEvent(
+                timestamp: start.addingTimeInterval(1),
+                kind: "assistant",
+                content: "project A / shared session"
+            )],
+            wasTruncated: false
+        )
+        let projectBSession = CollectedSessionArtifact(
+            id: "shared-session",
+            provider: .codex,
+            workingDirectory: "/tmp/project-b",
+            events: [CollectedEvent(
+                timestamp: start.addingTimeInterval(2),
+                kind: "assistant",
+                content: "project B / shared session"
+            )],
+            wasTruncated: false
+        )
+        let secondProjectASession = CollectedSessionArtifact(
+            id: "second-session",
+            provider: .codex,
+            workingDirectory: "/tmp/project-a",
+            events: [CollectedEvent(
+                timestamp: start.addingTimeInterval(3),
+                kind: "assistant",
+                content: "project A / second session"
+            )],
+            wasTruncated: false
+        )
+        let batch = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: [projectASession, projectBSession, secondProjectASession],
+            issues: []
+        )
+
+        let projects = CollectionProjectGrouping.projects(in: batch)
+
+        XCTAssertEqual(projects.count, 2)
+        let projectA = try XCTUnwrap(projects.first { $0.workingDirectory == "/tmp/project-a" })
+        let projectB = try XCTUnwrap(projects.first { $0.workingDirectory == "/tmp/project-b" })
+        XCTAssertEqual(projectA.sessions.count, 2)
+        XCTAssertEqual(Set(projectA.sessions.map(\.id)), ["shared-session", "second-session"])
+        XCTAssertEqual(projectB.sessions.count, 1)
+        XCTAssertEqual(projectB.sessions.first?.id, "shared-session")
+        XCTAssertEqual(projectB.sessions.first?.events.first?.content, "project B / shared session")
+    }
+
+    func testSummaryPromptUsesProjectIDForCollectedProjects() throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let batch = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: [CollectedSessionArtifact(
+                id: "codex:session",
+                provider: .codex,
+                workingDirectory: "/tmp/capsstack-project",
+                events: [CollectedEvent(
+                    timestamp: start.addingTimeInterval(1),
+                    kind: "assistant",
+                    content: "進捗"
+                )],
+                wasTruncated: false
+            )],
+            issues: []
+        )
+
+        let prompt = String(
+            decoding: try SummaryPromptFactory.prompt(for: batch, provider: .codex),
+            as: UTF8.self
+        )
+
+        XCTAssertTrue(prompt.contains("\"projectID\""))
+        XCTAssertFalse(prompt.contains("\"id\": \"project-1\""))
+    }
+
+    func testJSONLCollectorDoesNotMixSameSessionIDAcrossWorkingDirectories() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-jsonl-project-boundary-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let now = Date()
+        let interval = AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let lines = [
+            "{\"timestamp\":\"\(formatter.string(from: now.addingTimeInterval(-1)))\",\"session_id\":\"same-session\",\"cwd\":\"/tmp/project-a\",\"type\":\"assistant\",\"message\":\"A only\"}",
+            "{\"timestamp\":\"\(formatter.string(from: now.addingTimeInterval(1)))\",\"session_id\":\"same-session\",\"cwd\":\"/tmp/project-b\",\"type\":\"assistant\",\"message\":\"B only\"}"
+        ].joined(separator: "\n")
+        try Data(lines.utf8).write(
+            to: root.appendingPathComponent("mixed.jsonl"),
+            options: .atomic
+        )
+
+        let result = JSONLSessionCollector(provider: .codex, rootDirectory: root)
+            .collect(interval: interval)
+
+        XCTAssertEqual(result.sessions.count, 2)
+        let sessionsByDirectory = Dictionary(
+            uniqueKeysWithValues: result.sessions.compactMap { session in
+                session.workingDirectory.map { ($0, session) }
+            }
+        )
+        XCTAssertEqual(sessionsByDirectory["/tmp/project-a"]?.events.map(\.content), ["A only"])
+        XCTAssertEqual(sessionsByDirectory["/tmp/project-b"]?.events.map(\.content), ["B only"])
     }
 
     func testJSONLCollectorCapsMultibyteEventByUTF8Bytes() throws {
@@ -223,6 +346,8 @@ final class BackendTests: XCTestCase {
                 XCTAssertTrue(specification.arguments.contains(where: { $0 == "--no-session" }))
                 XCTAssertTrue(specification.arguments.contains(where: { $0 == "--thinking" }))
                 XCTAssertTrue(specification.arguments.contains(where: { $0 == "high" }))
+            case .githubCopilot, .kiloCode, .goose, .qwenCode, .continueCLI, .geminiCLI:
+                XCTFail("このテストケースには含まれません")
             }
         }
     }
@@ -384,6 +509,292 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(document.overview, "OpenCode event")
     }
 
+    func testSummaryOutputParserReadsProjectAndSessionHierarchy() throws {
+        let output = """
+        {
+          "overview": "プロジェクト単位の復帰ブリーフ",
+          "progress": ["実装を進めた"],
+          "currentState": ["テスト中"],
+          "decisions": [],
+          "blockers": [],
+          "nextSteps": ["レビューする"],
+          "projects": [
+            {
+              "projectID": "project-a",
+              "name": "CapsStack",
+              "summary": "プロジェクトAの概要",
+              "sessions": [
+                {"sessionID": "session-1", "source": "Codex CLI", "summary": "セッション1の進捗"},
+                {"sessionID": "session-2", "source": "Claude Code CLI", "summary": "セッション2の進捗"}
+              ]
+            }
+          ]
+        }
+        """
+
+        let document = try XCTUnwrap(
+            SummaryOutputParser.parse(stdout: Data(output.utf8), provider: .codex)
+        )
+
+        XCTAssertEqual(document.projects.count, 1)
+        XCTAssertEqual(document.projects.first?.projectID, "project-a")
+        XCTAssertEqual(document.projects.first?.name, "CapsStack")
+        XCTAssertEqual(document.projects.first?.sessions.map(\.sessionID), ["session-1", "session-2"])
+        XCTAssertEqual(document.sessions.map(\.sessionID), ["session-1", "session-2"])
+    }
+
+    func testSummaryOutputParserKeepsLegacySessionsFormat() throws {
+        let output = """
+        {
+          "overview": "旧形式の復帰ブリーフ",
+          "progress": [],
+          "currentState": [],
+          "decisions": [],
+          "blockers": [],
+          "nextSteps": [],
+          "sessions": [
+            {"sessionID": "legacy-session", "source": "Codex CLI", "summary": "旧形式の進捗"}
+          ]
+        }
+        """
+
+        let document = try XCTUnwrap(
+            SummaryOutputParser.parse(stdout: Data(output.utf8), provider: .codex)
+        )
+
+        XCTAssertTrue(document.projects.isEmpty)
+        XCTAssertEqual(document.sessions.count, 1)
+        XCTAssertEqual(document.sessions.first?.sessionID, "legacy-session")
+        XCTAssertEqual(document.sessions.first?.summary, "旧形式の進捗")
+    }
+
+    func testGitHubCopilotCollectorReadsSessionStateEventsAndWorkspaceDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-copilot-\(UUID().uuidString)", isDirectory: true)
+        let sessionID = "123e4567-e89b-12d3-a456-426614174000"
+        let sessionDirectory = root.appendingPathComponent(sessionID, isDirectory: true)
+        try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try Data("cwd: '/tmp/copilot-project'\n".utf8).write(
+            to: sessionDirectory.appendingPathComponent("workspace.yaml"),
+            options: .atomic
+        )
+
+        let now = Date()
+        let interval = AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let events = [
+            "{\"timestamp\":\"\(formatter.string(from: now.addingTimeInterval(-30)))\",\"type\":\"assistant\",\"message\":\"outside\"}",
+            "{\"timestamp\":\"\(formatter.string(from: now))\",\"type\":\"assistant\",\"message\":\"Copilotの進捗\"}",
+            "{\"timestamp\":\"\(formatter.string(from: now.addingTimeInterval(30)))\",\"type\":\"assistant\",\"message\":\"outside again\"}"
+        ].joined(separator: "\n")
+        try Data(events.utf8).write(
+            to: sessionDirectory.appendingPathComponent("events.jsonl"),
+            options: .atomic
+        )
+
+        let result = GitHubCopilotSessionCollector(rootDirectory: root).collect(interval: interval)
+
+        XCTAssertEqual(result.provider, .githubCopilot)
+        let session = try XCTUnwrap(result.sessions.first)
+        XCTAssertEqual(result.sessions.count, 1)
+        XCTAssertEqual(session.id, "githubCopilot:\(sessionID)")
+        XCTAssertEqual(session.workingDirectory, "/tmp/copilot-project")
+        XCTAssertEqual(session.events.count, 1)
+        XCTAssertEqual(session.events.first?.content, "Copilotの進捗")
+        XCTAssertTrue(result.issues.isEmpty)
+    }
+
+    func testGitHubCopilotCollectorIgnoresCheckpointJSON() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CapsStack-copilot-filter-\(UUID())", isDirectory: true)
+        let session = root.appendingPathComponent("session", isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let now = Date()
+        let stamp = ISO8601DateFormatter().string(from: now)
+        try Data("{\"timestamp\":\"\(stamp)\",\"type\":\"assistant\",\"message\":\"event\"}\n".utf8)
+            .write(to: session.appendingPathComponent("events.jsonl"))
+        try Data("{\"timestamp\":\"\(stamp)\",\"message\":\"checkpoint must stay private\"}".utf8)
+            .write(to: session.appendingPathComponent("checkpoint.json"))
+
+        let result = GitHubCopilotSessionCollector(rootDirectory: root).collect(
+            interval: AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+        )
+        XCTAssertEqual(result.sessions.first?.events.map(\.content), ["event"])
+    }
+
+    func testStructuredJSONCollectorReadsGeminiAndContinueMessageArrays() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CapsStack-structured-json-\(UUID())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let now = Date()
+        let stamp = ISO8601DateFormatter().string(from: now)
+        let transcript = """
+        {
+          "sessionId": "session-json",
+          "cwd": "/tmp/project",
+          "messages": [
+            {"timestamp": "\(stamp)", "type": "user", "content": [{"text": "依頼"}]},
+            {"timestamp": "\(stamp)", "type": "gemini", "content": "完了"}
+          ]
+        }
+        """
+        try Data(transcript.utf8).write(to: root.appendingPathComponent("session.json"))
+        let interval = AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+
+        for provider in [CLIKind.geminiCLI, .continueCLI] {
+            let result = JSONLSessionCollector(provider: provider, rootDirectory: root)
+                .collect(interval: interval)
+            XCTAssertEqual(result.sessions.first?.workingDirectory, "/tmp/project")
+            XCTAssertEqual(result.sessions.first?.events.map(\.content), ["依頼", "完了"])
+        }
+    }
+
+    func testQwenCollectorIgnoresRuntimeRootState() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-qwen-boundary-\(UUID().uuidString)", isDirectory: true)
+        let projects = root.appendingPathComponent("projects/project-a", isDirectory: true)
+        try fileManager.createDirectory(at: projects, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let now = Date()
+        let stamp = ISO8601DateFormatter().string(from: now)
+        try Data("{\"timestamp\":\"\(stamp)\",\"apiKey\":\"must-not-leak\"}".utf8)
+            .write(to: root.appendingPathComponent("settings.json"), options: .atomic)
+        try Data("{\"timestamp\":\"\(stamp)\",\"session_id\":\"qwen-1\",\"type\":\"assistant\",\"message\":\"Qwenの進捗\"}".utf8)
+            .write(to: projects.appendingPathComponent("chat.jsonl"), options: .atomic)
+
+        let collector = SessionCollectorFactory(
+            resolver: FixedDirectoryCLIResolver(logDirectory: root)
+        ).makeCollector(for: .qwenCode)
+        let result = collector.collect(
+            interval: AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+        )
+
+        XCTAssertEqual(result.sessions.count, 1)
+        XCTAssertEqual(result.sessions.first?.events.map(\.content), ["Qwenの進捗"])
+        XCTAssertFalse(result.sessions.flatMap(\.events).contains { $0.content.contains("must-not-leak") })
+    }
+
+    func testKiloAndGooseCollectorsUseOfficialListAndExportBoundaries() throws {
+        let now = Date()
+        let timestamp = Int(now.timeIntervalSince1970 * 1_000)
+        let list = Data("[{\"id\":\"s1\",\"directory\":\"/tmp/project\",\"time\":{\"created\":\(timestamp),\"updated\":\(timestamp)}}]".utf8)
+        let exported = Data("{\"messages\":[{\"role\":\"assistant\",\"timestamp\":\(timestamp),\"content\":\"done\"}]}".utf8)
+        let interval = AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+
+        for provider in [CLIKind.kiloCode, .goose] {
+            var calls: [[String]] = []
+            let collector = OpenCodeSessionCollector(
+                provider: provider,
+                rootDirectory: URL(fileURLWithPath: "/tmp"),
+                executableURL: URL(fileURLWithPath: "/usr/bin/true"),
+                commandRunner: { _, arguments, _, _ in
+                    calls.append(arguments)
+                    return arguments.contains("export") ? exported : list
+                },
+                listArguments: provider == .kiloCode
+                    ? ["session", "list", "--all", "--format", "json"]
+                    : ["session", "list", "--format", "json"],
+                exportArguments: provider == .goose
+                    ? { ["session", "export", "--session-id", $0, "--format", "json"] }
+                    : { ["export", $0] }
+            )
+            let result = collector.collect(interval: interval)
+            XCTAssertEqual(result.sessions.first?.events.first?.content, "done")
+            let expectedListArguments = provider == .kiloCode
+                ? ["session", "list", "--all", "--format", "json"]
+                : ["session", "list", "--format", "json"]
+            XCTAssertEqual(calls.first, expectedListArguments)
+            XCTAssertTrue(calls.last?.contains("s1") == true)
+        }
+    }
+
+    func testDBBackedCollectorsDoNotInterpretFilesWhenCLIIsUnavailable() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-db-boundary-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let now = Date()
+        let stamp = ISO8601DateFormatter().string(from: now)
+        try Data("{\"timestamp\":\"\(stamp)\",\"session_id\":\"db\",\"type\":\"assistant\",\"message\":\"保存ファイルを直接解釈しない\"}".utf8)
+            .write(to: root.appendingPathComponent("session.jsonl"), options: .atomic)
+        let interval = AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+
+        for provider in [CLIKind.kiloCode, .goose] {
+            let result = OpenCodeSessionCollector(
+                provider: provider,
+                rootDirectory: root,
+                executableURL: nil
+            ).collect(interval: interval)
+
+            XCTAssertTrue(result.sessions.isEmpty)
+            XCTAssertTrue(result.issues.contains { $0.message.contains("直接解釈しませんでした") })
+        }
+    }
+
+    func testNewHeadlessProvidersEnforceDocumentedSafetyModes() async throws {
+        let cases: [(CLIKind, SafeHeadlessSummaryProvider.Strategy)] = [
+            (.githubCopilot, .githubCopilot),
+            (.kiloCode, .kiloCode),
+            (.goose, .goose),
+            (.qwenCode, .qwenCode)
+        ]
+        for (kind, strategy) in cases {
+            let runner = RecordingProcessRunner()
+            let provider = SafeHeadlessSummaryProvider(
+                kind: kind,
+                strategy: strategy,
+                resolver: StaticCLIResolver(),
+                runner: runner
+            )
+            _ = try await provider.summarize(batch: makeBatch(), modelOverride: "test-model")
+            let specification = try XCTUnwrap(runner.nonHelpSpecifications.last)
+            XCTAssertNotEqual(specification.currentDirectoryURL?.path, "/tmp/project")
+            switch kind {
+            case .githubCopilot:
+                XCTAssertTrue(specification.arguments.contains("--available-tools="))
+                XCTAssertTrue(specification.arguments.contains("--disable-builtin-mcps"))
+                XCTAssertTrue(
+                    specification.environment?["COPILOT_HOME"]?.hasPrefix(
+                        specification.currentDirectoryURL?.path ?? ""
+                    ) == true
+                )
+            case .kiloCode:
+                XCTAssertTrue(specification.arguments.contains("ask"))
+                XCTAssertTrue(
+                    specification.environment?["KILO_DB"]?.hasPrefix(
+                        specification.currentDirectoryURL?.path ?? ""
+                    ) == true
+                )
+            case .goose:
+                XCTAssertTrue(specification.arguments.contains("--no-session"))
+                XCTAssertEqual(specification.environment?["GOOSE_MODE"], "chat")
+            case .qwenCode:
+                XCTAssertTrue(specification.arguments.contains("--safe-mode"))
+                XCTAssertTrue(specification.arguments.contains("--exclude-tools"))
+                XCTAssertTrue(specification.arguments.contains("0"))
+                XCTAssertTrue(
+                    specification.environment?["QWEN_RUNTIME_DIR"]?.hasPrefix(
+                        specification.currentDirectoryURL?.path ?? ""
+                    ) == true
+                )
+            default:
+                XCTFail("unexpected provider")
+            }
+        }
+    }
+
     func testSummaryOutputParserRejectsPartialAndCaseCollidingObjects() {
         let partial = Data(#"{"overview":"missing required arrays"}"#.utf8)
         XCTAssertNil(SummaryOutputParser.parse(stdout: partial, provider: .codex))
@@ -485,6 +896,62 @@ final class BackendTests: XCTestCase {
         for receivedBatch in provider.receivedBatches {
             XCTAssertLessThanOrEqual(try encoder.encode(receivedBatch).count, 16 * 1_024)
         }
+    }
+
+    func testSummaryOrchestratorBoundsFlattenedProjectIntegrationInput() async throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let projects = (0..<24).map { index in
+            ProjectSummary(
+                projectID: "project-\(index)",
+                name: "Project \(index)",
+                summary: String(repeating: "要約", count: 1_000),
+                sessions: [SessionSummary(
+                    sessionID: "session-\(index)",
+                    source: "Codex CLI",
+                    summary: "進捗"
+                )]
+            )
+        }
+        let document = SummaryDocument(
+            overview: "projects",
+            progress: [],
+            currentState: [],
+            decisions: [],
+            blockers: [],
+            nextSteps: [],
+            sessions: [],
+            projects: projects
+        )
+        let provider = FakeSummaryProvider(kind: .codex, document: document)
+        let orchestrator = SummaryOrchestrator(
+            maxInputBytes: 16 * 1_024,
+            providers: [.codex: provider]
+        )
+        let batch = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: [CollectedSessionArtifact(
+                id: "large-session",
+                provider: .codex,
+                workingDirectory: "/tmp/project",
+                events: [CollectedEvent(
+                    timestamp: start,
+                    kind: "assistant",
+                    content: String(repeating: "x", count: 40_000)
+                )],
+                wasTruncated: false
+            )],
+            issues: []
+        )
+
+        _ = try await orchestrator.summarize(
+            batch: batch,
+            preferences: SummarizerPreferences(primary: .codex, automaticFallback: false)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let integrationBatch = try XCTUnwrap(provider.receivedBatches.last)
+        XCTAssertLessThanOrEqual(try encoder.encode(integrationBatch).count, 16 * 1_024)
     }
 
     func testHistoryStoreDeletesRawAfterCompletionAndKeepsFailedPendingArtifact() throws {
@@ -809,6 +1276,7 @@ final class BackendTests: XCTestCase {
         defaults.set(false, forKey: PreferenceKeys.collectClaude)
         defaults.set(false, forKey: PreferenceKeys.collectOpenCode)
         defaults.set(false, forKey: PreferenceKeys.collectPi)
+        defaults.set(false, forKey: PreferenceKeys.collectGitHubCopilot)
         defaults.set(Date().addingTimeInterval(-30), forKey: PreferenceKeys.awayStart)
 
         let root = FileManager.default.temporaryDirectory
@@ -854,6 +1322,7 @@ final class BackendTests: XCTestCase {
         defaults.set(false, forKey: PreferenceKeys.collectClaude)
         defaults.set(false, forKey: PreferenceKeys.collectOpenCode)
         defaults.set(false, forKey: PreferenceKeys.collectPi)
+        defaults.set(false, forKey: PreferenceKeys.collectGitHubCopilot)
 
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(suiteName, isDirectory: true)

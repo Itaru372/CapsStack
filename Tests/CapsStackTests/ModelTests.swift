@@ -41,6 +41,9 @@ final class ModelTests: XCTestCase {
     func testBrandAssetsArePackaged() {
         XCTAssertNotNil(BrandAssets.nsImage(named: "CapsStackAppIcon"))
         XCTAssertNotNil(BrandAssets.nsImage(named: "CapsStackMenuBar"))
+        for name in ["AgentKilo", "AgentGoose", "AgentQwen", "AgentContinue", "AgentGemini"] {
+            XCTAssertNotNil(Bundle.module.url(forResource: name, withExtension: "png"))
+        }
     }
 
     @MainActor
@@ -192,6 +195,15 @@ final class ModelTests: XCTestCase {
         }
 
         XCTAssertEqual(changeCount, 0)
+    }
+
+    func testCollectorOnlyAgentCannotBecomePrimarySummarizer() throws {
+        let suiteName = "CapsStackCollectorOnlyPrimaryTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(CLIKind.geminiCLI.rawValue, forKey: PreferenceKeys.primarySummarizer)
+
+        XCTAssertEqual(SummarizerPreferences(defaults: defaults).primary, .codex)
     }
 
     func testSummaryDocumentRoundTripsAsJSON() throws {

@@ -13,9 +13,17 @@ let package = Package(
         // The packaged binary is installed as `Contents/Helpers/capsstack`.
         .executable(name: "capsstack-cli", targets: ["CapsStackCLI"])
     ],
+    dependencies: [
+        // PostHog's native Swift SDK supports macOS and is used only through the
+        // privacy-reviewed TelemetryClient adapter.
+        .package(url: "https://github.com/PostHog/posthog-ios.git", exact: "3.69.5")
+    ],
     targets: [
         .executableTarget(
             name: "CapsStack",
+            dependencies: [
+                .product(name: "PostHog", package: "posthog-ios")
+            ],
             path: "Sources/CapsStack",
             resources: [
                 .process("Resources")

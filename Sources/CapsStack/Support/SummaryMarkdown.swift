@@ -35,7 +35,20 @@ enum SummaryMarkdown {
         appendSection("問題・確認待ち", items: summary.blockers, to: &lines)
         appendSection("次の予定", items: summary.nextSteps, to: &lines)
 
-        if !summary.sessions.isEmpty {
+        if !summary.projects.isEmpty {
+            lines.append("")
+            lines.append("## プロジェクト別")
+            for project in summary.projects {
+                lines.append("")
+                lines.append("### \(project.name)")
+                lines.append(project.summary)
+                for session in project.sessions {
+                    lines.append("")
+                    lines.append("**\(session.source) — \(session.sessionID)**")
+                    lines.append(session.summary)
+                }
+            }
+        } else if !summary.sessions.isEmpty {
             lines.append("")
             lines.append("## セッション別")
             for session in summary.sessions {

@@ -96,6 +96,9 @@ struct HistoryView: View {
             // Clear it when navigating so a newly selected entry never looks as if its copy or
             // export action already completed.
             exportMessage = nil
+            if let selectedEntry {
+                controller.recordHistoryAction(.viewed, for: selectedEntry)
+            }
         }
     }
 
@@ -152,6 +155,7 @@ struct HistoryView: View {
             SummaryMarkdown.document(for: entry),
             forType: .string
         )
+        controller.recordHistoryAction(.copied, for: entry)
         exportMessage = entry.summary == nil ? "履歴の状態をコピーしました" : "コピーしました"
     }
 
@@ -164,6 +168,7 @@ struct HistoryView: View {
             do {
                 try SummaryMarkdown.document(for: entry)
                     .write(to: url, atomically: true, encoding: .utf8)
+                controller.recordHistoryAction(.exported, for: entry)
                 exportMessage = entry.summary == nil ? "履歴の状態を保存しました" : "保存しました"
             } catch {
                 exportMessage = "保存できませんでした"
@@ -429,6 +434,12 @@ private struct ReturnBriefView: View {
                     checklist: true
                 )
 
+                if !summary.projects.isEmpty {
+                    ProjectBriefsView(projects: summary.projects)
+                } else if !summary.sessions.isEmpty {
+                    LegacySessionBriefsView(sessions: summary.sessions)
+                }
+
                 if !summary.currentState.isEmpty || !summary.blockers.isEmpty {
                     supplementalSections(summary)
                 }
@@ -507,6 +518,68 @@ private struct ReturnBriefView: View {
         .font(.caption.monospacedDigit())
         .foregroundStyle(.secondary)
         .padding(.top, 4)
+    }
+}
+
+private struct ProjectBriefsView: View {
+    let projects: [ProjectSummary]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("プロジェクト別", systemImage: "folder")
+                .font(.subheadline.weight(.bold))
+
+            ForEach(projects) { project in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text(project.name)
+                            .font(.headline)
+                        Spacer()
+                        Text("\(project.sessions.count)セッション")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(project.summary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+
+                    ForEach(project.sessions) { session in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(session.source)
+                                .font(.caption.weight(.semibold))
+                            Text(session.summary)
+                                .font(.callout)
+                                .textSelection(.enabled)
+                        }
+                        .padding(.top, 4)
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(BrandPalette.BriefTheme.panel, in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("\(project.name)、\(project.sessions.count)セッション")
+            }
+        }
+    }
+}
+
+private struct LegacySessionBriefsView: View {
+    let sessions: [SessionSummary]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("セッション別", systemImage: "terminal")
+                .font(.subheadline.weight(.bold))
+            ForEach(sessions) { session in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(session.source).font(.caption.weight(.semibold))
+                    Text(session.summary).font(.callout).textSelection(.enabled)
+                }
+            }
+        }
     }
 }
 
