@@ -7,9 +7,9 @@ enum HistoryStoreError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidHistoryData:
-            return "CapsStackの履歴ファイルを読み取れません。"
+            return "Could not read the CapsStack history file."
         case .pendingArtifactNotFound(let id):
-            return "保留中の収集資料が見つかりません: \(id.uuidString)"
+            return "Pending collection artifact not found: \(id.uuidString)"
         }
     }
 }

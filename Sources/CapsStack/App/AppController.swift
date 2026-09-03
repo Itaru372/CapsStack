@@ -95,24 +95,24 @@ final class AppController: ObservableObject {
     }
 
     var stateTitle: String {
-        if !isCapsStackEnabled { return "一時停止中" }
+        if !isCapsStackEnabled { return "Paused" }
         switch phase {
-        case .idle: return "待機中"
-        case .away: return "退席中"
-        case .summarizing: return "進捗を要約中"
-        case .failed: return "要約できませんでした"
-        case .disabled: return "一時停止中"
+        case .idle: return "Ready"
+        case .away: return "Away"
+        case .summarizing: return "Summarizing progress"
+        case .failed: return "Summary failed"
+        case .disabled: return "Paused"
         }
     }
 
     var stateDetail: String {
-        if !isCapsStackEnabled { return "設定でCapsStackを有効にすると再開します" }
+        if !isCapsStackEnabled { return "Enable CapsStack in Settings to resume monitoring" }
         switch phase {
-        case .idle: return "Caps LockをONにすると収集を開始します"
-        case .away: return "Caps LockをOFFにすると要約します"
-        case .summarizing: return "収集元と要約担当は別々に処理されます"
-        case .failed: return lastError ?? "履歴から再要約できます"
-        case .disabled: return "設定でCapsStackを有効にすると再開します"
+        case .idle: return "Turn Caps Lock on to start collecting"
+        case .away: return "Turn Caps Lock off to generate a summary"
+        case .summarizing: return "Collection and summarization run independently"
+        case .failed: return lastError ?? "Retry the summary from History"
+        case .disabled: return "Enable CapsStack in Settings to resume monitoring"
         }
     }
 
@@ -241,7 +241,7 @@ final class AppController: ObservableObject {
               let pendingID = entry.pendingArtifactID else { return }
 
         // Set the phase before the first suspension point. Without this synchronous guard,
-        // repeated clicks on "再要約" could enqueue multiple tasks before the first one loaded
+        // Repeated clicks on "Retry summary" could enqueue multiple tasks before the first one loaded
         // its artifact, and both tasks would append a completed history row.
         phase = .summarizing
         lastError = nil
@@ -303,7 +303,7 @@ final class AppController: ObservableObject {
 
     func revealHistoryFolder() {
         // The folder is lazily created on the first history write. Create it here as well so the
-        // first-use "表示" button always has a concrete location to reveal.
+        // The first-use "Show" button always has a concrete location to reveal.
         do {
             try FileManager.default.createDirectory(
                 at: historyDirectoryURL,
@@ -431,7 +431,7 @@ final class AppController: ObservableObject {
         providerTestTask?.cancel()
         providerTestTask = nil
         if let kind = testingProvider {
-            providerTestMessages[kind] = "キャンセルしました"
+            providerTestMessages[kind] = "Cancelled"
         }
         testingProvider = nil
     }
@@ -446,7 +446,7 @@ final class AppController: ObservableObject {
         guard isCurrentProviderTest(generation) else { return }
         guard testingProvider == nil else { return }
         testingProvider = kind
-        providerTestMessages[kind] = "確認中..."
+        providerTestMessages[kind] = "Checking…"
         defer {
             if isCurrentProviderTest(generation) {
                 testingProvider = nil
@@ -465,7 +465,7 @@ final class AppController: ObservableObject {
                     events: [CollectedEvent(
                         timestamp: now,
                         kind: "test",
-                        content: "CapsStackの接続試験です。この内容だけを短く要約してください。"
+                        content: "This is a CapsStack connection test. Please summarize only this content briefly."
                     )],
                     wasTruncated: false
                 )
@@ -486,10 +486,10 @@ final class AppController: ObservableObject {
             )
             guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
             succeeded = true
-            providerTestMessages[kind] = "成功"
+            providerTestMessages[kind] = "Success"
         } catch {
             guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
-            providerTestMessages[kind] = "失敗: \(error.localizedDescription)"
+            providerTestMessages[kind] = "Failed: \(error.localizedDescription)"
         }
         guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
         telemetry.capture(.providerTested(provider: kind, succeeded: succeeded))
@@ -772,7 +772,7 @@ final class AppController: ObservableObject {
             do {
                 _ = try historyStore.replace(failed)
             } catch {
-                presentedErrorMessage += "\n再試行状態を保存できませんでした: \(error.localizedDescription)"
+                presentedErrorMessage += "\nCould not save retry data: \(error.localizedDescription)"
             }
             reloadHistory()
             phase = .failed
@@ -788,7 +788,7 @@ final class AppController: ObservableObject {
             sessionCount: 0,
             sources: requestedSources.sorted { $0.rawValue < $1.rawValue },
             collectionIssues: batch.issues,
-            errorMessage: requestedSources.isEmpty ? "収集元が選択されていません。" : nil
+            errorMessage: requestedSources.isEmpty ? "No collection sources are selected." : nil
         )
         _ = try historyStore.save(entry)
         reloadHistory()

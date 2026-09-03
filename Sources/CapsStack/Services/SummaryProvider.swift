@@ -37,13 +37,14 @@ enum SummaryPromptFactory {
             throw SummaryProviderError.invalidOutput(provider)
         }
         let text = """
-        あなたはCapsStackの要約専用プロセスです。BEGIN_CAPSSTACK_ARTIFACTとEND_CAPSSTACK_ARTIFACTの間のJSONだけを読み、退席中の進捗を要約してください。
-        コード変更、コマンド実行、ファイル探索、ネットワークアクセス、元セッションのresumeやcontinueは禁止です。
-        ログにない事実は推測せず、不明な項目は空配列にしてください。
-        JSONにquickMemoフィールドがある場合は、それはユーザーが退席前に書いた補足メモです。セッションログと併せて考慮し、要約のoverviewやnextStepsに反映してください。
-        入力のeventsはCaps LockがONだった区間だけに絞られています。projectsごとに、その中のsessionsをまとめているため、この階層を維持し、プロジェクトをまたいでセッションを混ぜないでください。
-        次のキーをすべて持つJSONオブジェクトだけを返してください: overview, progress, currentState, decisions, blockers, nextSteps, projects。
-        projectsの出力各要素はprojectID、name、summary、sessionsを持ち、projectIDとnameは入力projectsの値を維持し、summaryはそのプロジェクト内のsessions/eventsを要約してください。出力sessionsの各要素はsessionID、source、summaryを持ち、sessionIDには入力sessionsのid、sourceには入力sessionsのsourceをそのまま使い、対応するeventsを要約してください。Markdownフェンスや説明文は出力しないでください。
+        You are CapsStack's dedicated summarization process. Read only the JSON between BEGIN_CAPSSTACK_ARTIFACT and END_CAPSSTACK_ARTIFACT, then summarize the progress made while the user was away.
+        Write every summary field in English. Preserve proper names, code, commands, and quoted user text as written when needed for accuracy.
+        Do not change code, run commands, inspect files, access the network, or resume or continue a source session.
+        Do not infer facts that are not present in the logs. Use empty arrays for unknown sections.
+        If the JSON contains quickMemo, it is context the user wrote before stepping away. Consider it alongside the session logs and reflect it in overview or nextSteps when relevant.
+        The events are limited to the interval when Caps Lock was on. Preserve the project and session hierarchy: summarize sessions within their project and never mix sessions across projects.
+        Return only a JSON object containing all of these keys: overview, progress, currentState, decisions, blockers, nextSteps, projects.
+        Each project in projects must contain projectID, name, summary, and sessions. Preserve projectID and name from the input, and summarize that project's sessions and events in summary. Each output session must contain sessionID, source, and summary; preserve the input session id and source, and summarize its events. Do not include Markdown fences or explanatory text.
 
         BEGIN_CAPSSTACK_ARTIFACT
         \(payloadText)
@@ -176,7 +177,7 @@ final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .codex,
-                    Self.errorMessage(from: result, fallback: "終了コード \(result.terminationStatus)")
+                    Self.errorMessage(from: result, fallback: "Exit code \(result.terminationStatus)")
                 )
             }
             guard !result.didTruncateOutput else {
@@ -314,7 +315,7 @@ final class ClaudeCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .claudeCode,
-                    Self.errorMessage(from: result, fallback: "終了コード \(result.terminationStatus)")
+                    Self.errorMessage(from: result, fallback: "Exit code \(result.terminationStatus)")
                 )
             }
             guard !result.didTruncateOutput else {
@@ -415,7 +416,7 @@ final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
         guard executable.lastPathComponent != "opencode2" else {
             throw SummaryProviderError.processFailed(
                 .opencode,
-                "OpenCode 2 CLIは現在のOpenCode 1用アダプタと互換性がありません。"
+                "The OpenCode 2 CLI is not compatible with the current OpenCode 1 adapter."
             )
         }
 
@@ -454,7 +455,7 @@ final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .opencode,
-                    Self.errorMessage(from: result, fallback: "終了コード \(result.terminationStatus)")
+                    Self.errorMessage(from: result, fallback: "Exit code \(result.terminationStatus)")
                 )
             }
             guard !result.didTruncateOutput else {
@@ -585,7 +586,7 @@ final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .pi,
-                    Self.errorMessage(from: result, fallback: "終了コード \(result.terminationStatus)")
+                    Self.errorMessage(from: result, fallback: "Exit code \(result.terminationStatus)")
                 )
             }
             guard !result.didTruncateOutput else {
@@ -710,7 +711,7 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 let text = String(data: result.standardError, encoding: .utf8)
                     ?? String(data: result.standardOutput, encoding: .utf8)
-                    ?? "終了コード \(result.terminationStatus)"
+                    ?? "Exit code \(result.terminationStatus)"
                 throw SummaryProviderError.processFailed(kind, String(text.prefix(1_000)))
             }
             guard !result.didTruncateOutput,

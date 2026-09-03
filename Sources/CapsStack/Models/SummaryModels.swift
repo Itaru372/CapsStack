@@ -63,7 +63,7 @@ struct SummaryDocument: Codable, Equatable, Sendable {
     }
 
     static let empty = SummaryDocument(
-        overview: "要約できる進捗はありませんでした。",
+        overview: "No progress could be summarized.",
         progress: [],
         currentState: [],
         decisions: [],
@@ -90,15 +90,15 @@ enum SummaryProviderError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .executableNotFound(let kind):
-            "\(kind.displayName) が見つかりません。"
+            "\(kind.displayName) was not found."
         case .processFailed(let kind, let message):
-            "\(kind.displayName) の実行に失敗しました: \(message)"
+            "\(kind.displayName) failed to run: \(message)"
         case .timedOut(let kind):
-            "\(kind.displayName) の要約がタイムアウトしました。"
+            "\(kind.displayName) summary timed out."
         case .invalidOutput(let kind):
-            "\(kind.displayName) が読み取れない要約を返しました。"
+            "\(kind.displayName) returned an unreadable summary."
         case .noProviderAvailable:
-            "利用可能な要約CLIがありません。"
+            "No summarizer CLI is available."
         }
     }
 }

@@ -60,13 +60,13 @@ final class OpenCodeSessionCollector: SessionCollector {
                     sessions: [],
                     issues: [CollectionIssue(
                         provider: provider,
-                        message: "ログ保存先が見つかりません: \(rootDirectory.path)"
+                        message: "Log storage directory not found: \(rootDirectory.path)"
                     )]
                 )
             }
             return fallbackToFiles(
                 interval: interval,
-                reason: "\(providerName)が見つからないため"
+                reason: "\(providerName) was not found"
             )
         }
 
@@ -83,7 +83,7 @@ final class OpenCodeSessionCollector: SessionCollector {
         guard let listData else {
             return fallbackToFiles(
                 interval: interval,
-                reason: "\(providerName)のセッション一覧を取得できないため"
+                reason: "Could not list \(providerName) sessions"
             )
         }
 
@@ -94,7 +94,7 @@ final class OpenCodeSessionCollector: SessionCollector {
             }
             return fallbackToFiles(
                 interval: interval,
-                reason: "\(providerName)のセッション一覧を解釈できないため"
+                reason: "Could not parse the \(providerName) session list"
             )
         }
 
@@ -108,7 +108,7 @@ final class OpenCodeSessionCollector: SessionCollector {
             guard remainingTime > 0 else {
                 issues.append(CollectionIssue(
                     provider: provider,
-                    message: "\(providerName)の収集が\(Int(collectionTimeout))秒を超えたため、残りのセッションを次回へ回しました。"
+                    message: "\(providerName) collection exceeded \(Int(collectionTimeout)) seconds; remaining sessions will be retried next time."
                 ))
                 break
             }
@@ -120,7 +120,7 @@ final class OpenCodeSessionCollector: SessionCollector {
             ) else {
                 issues.append(CollectionIssue(
                     provider: provider,
-                    message: "\(providerName)のセッションを書き出せませんでした: \(descriptor.id)"
+                        message: "Could not export the \(providerName) session: \(descriptor.id)"
                 ))
                 continue
             }
@@ -162,7 +162,7 @@ final class OpenCodeSessionCollector: SessionCollector {
                 sessions: [],
                 issues: [CollectionIssue(
                     provider: provider,
-                    message: "\(reason)。DB-backed CLIの保存ファイルは直接解釈しませんでした。"
+                    message: "\(reason). The DB-backed CLI storage was not parsed directly."
                 )]
             )
         }
@@ -173,7 +173,7 @@ final class OpenCodeSessionCollector: SessionCollector {
             sessions: fileResult.sessions,
             issues: [CollectionIssue(
                 provider: provider,
-                message: "\(reason)、保存ファイルを補助的に走査しました。"
+                message: "\(reason); storage files were scanned as a fallback."
             )] + fileResult.issues
         )
     }

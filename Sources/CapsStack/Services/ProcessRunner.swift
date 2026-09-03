@@ -42,13 +42,13 @@ enum ProcessRunnerError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidExecutable(let url):
-            return "実行ファイルが見つかりません: \(url.path)"
+            return "Executable not found: \(url.path)"
         case .failedToLaunch(let message):
-            return "プロセスを起動できませんでした: \(message)"
+            return "Could not start process: \(message)"
         case .timedOut:
-            return "プロセスがタイムアウトしました。"
+            return "Process timed out."
         case .cancelled:
-            return "プロセスがキャンセルされました。"
+            return "Process was cancelled."
         }
     }
 }

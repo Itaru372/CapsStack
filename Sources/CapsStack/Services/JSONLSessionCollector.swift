@@ -39,7 +39,7 @@ final class JSONLSessionCollector: SessionCollector {
                 sessions: [],
                 issues: [CollectionIssue(
                     provider: provider,
-                    message: "ログディレクトリが見つかりません: \(rootDirectory.path)"
+                    message: "Log directory not found: \(rootDirectory.path)"
                 )]
             )
         }
@@ -49,7 +49,7 @@ final class JSONLSessionCollector: SessionCollector {
                 sessions: [],
                 issues: [CollectionIssue(
                     provider: provider,
-                    message: "ログディレクトリを読み取れません: \(rootDirectory.path)"
+                    message: "Could not read log directory: \(rootDirectory.path)"
                 )]
             )
         }
@@ -70,7 +70,7 @@ final class JSONLSessionCollector: SessionCollector {
             filesToRead = Array(filesToRead.prefix(maxFiles))
             issues.append(CollectionIssue(
                 provider: provider,
-                message: "対象ログが多いため、最新の\(maxFiles)ファイルだけを読み取りました。"
+                message: "There are too many log files to inspect; only the latest \(maxFiles) were read."
             ))
         }
 
@@ -82,7 +82,7 @@ final class JSONLSessionCollector: SessionCollector {
                 if read.wasTruncated {
                     issues.append(CollectionIssue(
                         provider: provider,
-                        message: "巨大なログを末尾\(maxFileBytes / 1024 / 1024)MBに制限しました: \(file.lastPathComponent)"
+                        message: "Large log was limited to the last \(maxFileBytes / 1024 / 1024) MB: \(file.lastPathComponent)"
                     ))
                 }
                 var invalidLines = 0
@@ -161,19 +161,19 @@ final class JSONLSessionCollector: SessionCollector {
                 if invalidLines > 0 {
                     issues.append(CollectionIssue(
                         provider: provider,
-                        message: "\(file.lastPathComponent) の不正なJSONLを\(invalidLines)行スキップしました。"
+                        message: "Skipped \(invalidLines) invalid JSONL lines in \(file.lastPathComponent)."
                     ))
                 }
                 if oversizedLines > 0 {
                     issues.append(CollectionIssue(
                         provider: provider,
-                        message: "\(file.lastPathComponent) の巨大な行を\(oversizedLines)行スキップしました。"
+                        message: "Skipped \(oversizedLines) oversized lines in \(file.lastPathComponent)."
                     ))
                 }
             } catch {
                 issues.append(CollectionIssue(
                     provider: provider,
-                    message: "ログを読み取れませんでした (\(file.lastPathComponent)): \(error.localizedDescription)"
+                    message: "Could not read log (\(file.lastPathComponent)): \(error.localizedDescription)"
                 ))
             }
         }

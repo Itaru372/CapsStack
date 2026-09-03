@@ -50,7 +50,7 @@ enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
     var collectionClientDescription: String {
         switch self {
         case .codex: "CLI / Desktop / IDE"
-        case .opencode: "CLI / Desktop / IDE（公式export経由）"
+        case .opencode: "CLI / Desktop / IDE (via official export)"
         default: "CLI"
         }
     }
@@ -102,31 +102,31 @@ enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var modelHint: String {
         switch self {
-        case .codex: "例: gpt-5.5（空欄ならCodexの既定値）"
-        case .claudeCode: "例: sonnet または claude-sonnet-4-5（空欄なら既定値）"
-        case .opencode: "例: anthropic/claude-sonnet-4-5（provider/model）"
-        case .pi: "例: openai/gpt-5.5 またはモデルID"
-        case .githubCopilot: "例: gpt-5.4（空欄ならCopilotの既定値）"
-        case .kiloCode: "例: anthropic/claude-sonnet-4-6（空欄なら既定値）"
-        case .goose: "例: claude-sonnet-4-6（空欄ならGooseの既定値）"
-        case .qwenCode: "例: qwen3-coder-plus（空欄なら既定値）"
-        case .continueCLI: "例: claude-sonnet-4-6（空欄なら既定値）"
-        case .geminiCLI: "収集専用（要約担当には使用しません）"
+        case .codex: "e.g. gpt-5.5 (leave blank for Codex's default)"
+        case .claudeCode: "e.g. sonnet or claude-sonnet-4-5 (leave blank for the default)"
+        case .opencode: "e.g. anthropic/claude-sonnet-4-5 (provider/model)"
+        case .pi: "e.g. openai/gpt-5.5 or a model ID"
+        case .githubCopilot: "e.g. gpt-5.4 (leave blank for Copilot's default)"
+        case .kiloCode: "e.g. anthropic/claude-sonnet-4-6 (leave blank for the default)"
+        case .goose: "e.g. claude-sonnet-4-6 (leave blank for Goose's default)"
+        case .qwenCode: "e.g. qwen3-coder-plus (leave blank for the default)"
+        case .continueCLI: "e.g. claude-sonnet-4-6 (leave blank for the default)"
+        case .geminiCLI: "Collection only (not available as a summarizer)"
         }
     }
 
     var reasoningHint: String {
         switch self {
         case .codex: "minimal / low / medium / high / xhigh / none"
-        case .claudeCode: "low / medium / high / max / xhigh（CLIのバージョン依存）"
-        case .opencode: "モデルに存在するvariant名（モデル依存）"
+        case .claudeCode: "low / medium / high / max / xhigh (depends on the CLI version)"
+        case .opencode: "A variant name supported by the selected model"
         case .pi: "off / minimal / low / medium / high / xhigh / max"
         case .githubCopilot: "low / medium / high / xhigh / max"
-        case .kiloCode: "要約時はAsk agentを使用（推論指定なし）"
-        case .goose: "要約時はChat modeを使用（推論指定なし）"
-        case .qwenCode: "モデル側の既定値（推論指定なし）"
-        case .continueCLI: "モデル側の既定値（推論指定なし）"
-        case .geminiCLI: "収集専用（要約担当には使用しません）"
+        case .kiloCode: "Uses the Ask agent for summaries (no reasoning override)"
+        case .goose: "Uses Chat mode for summaries (no reasoning override)"
+        case .qwenCode: "Uses the model's default (no reasoning override)"
+        case .continueCLI: "Uses the model's default (no reasoning override)"
+        case .geminiCLI: "Collection only (not available as a summarizer)"
         }
     }
 
@@ -242,20 +242,20 @@ struct CLIStatus: Equatable, Sendable {
 
     var collectionStatusDescription: String {
         if kind == .opencode, isDesktopAppInstalled, !isInstalled {
-            return "Desktopを検出 ・ 収集にはOpenCode CLIが必要"
+            return "Desktop detected · OpenCode CLI is required for collection"
         }
 
         var detected: [String] = []
         if isInstalled { detected.append("CLI") }
         if isDesktopAppInstalled { detected.append("Desktop") }
-        if canReadLogs { detected.append("履歴") }
-        let detectedText = detected.isEmpty ? "未検出" : detected.joined(separator: " / ") + "を検出"
+        if canReadLogs { detected.append("History") }
+        let detectedText = detected.isEmpty ? "Not detected" : detected.joined(separator: " / ") + " detected"
 
         if kind == .opencode, isInstalled {
-            return "\(kind.collectionClientDescription) ・ \(detectedText)"
+            return "\(kind.collectionClientDescription) · \(detectedText)"
         }
         if kind == .codex {
-            return "\(kind.collectionClientDescription) ・ \(detectedText)"
+            return "\(kind.collectionClientDescription) · \(detectedText)"
         }
         return detectedText
     }

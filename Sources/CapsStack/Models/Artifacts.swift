@@ -53,7 +53,7 @@ enum AgentClientKind: String, Codable, Equatable, Sendable {
         case .desktop: "\(provider.collectionDisplayName) Desktop"
         case .ideExtension: "\(provider.collectionDisplayName) IDE"
         case .sdk: "\(provider.collectionDisplayName) SDK"
-        case .shared: "\(provider.collectionDisplayName) 共有セッション"
+        case .shared: "\(provider.collectionDisplayName) Shared Session"
         case .unknown: provider.collectionDisplayName
         }
     }
@@ -142,7 +142,7 @@ enum CollectionProjectGrouping {
     }
 
     private static func projectName(for directory: String?) -> String {
-        guard let directory = normalizedDirectory(directory) else { return "プロジェクト不明" }
+        guard let directory = normalizedDirectory(directory) else { return "Unknown project" }
         let name = URL(fileURLWithPath: directory, isDirectory: true).lastPathComponent
         return name.isEmpty ? directory : name
     }

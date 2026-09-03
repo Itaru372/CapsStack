@@ -36,16 +36,16 @@ final class HistoryAndFormattingTests: XCTestCase {
 
     func testMarkdownMatchesAppSectionMeaning() {
         let markdown = CLIFormatting.markdown(makeEntry(offset: 0))
-        XCTAssertTrue(markdown.contains("# CapsStack 要約"))
-        XCTAssertTrue(markdown.contains("## 進んだ内容"))
-        XCTAssertTrue(markdown.contains("## 現在の状態"))
-        XCTAssertTrue(markdown.contains("## 重要な判断"))
-        XCTAssertTrue(markdown.contains("## 問題・確認待ち"))
-        XCTAssertTrue(markdown.contains("## 次の予定"))
-        XCTAssertTrue(markdown.contains("**収集元**: Codex"))
-        XCTAssertTrue(markdown.contains("**要約CLI**: Codex CLI"))
+        XCTAssertTrue(markdown.contains("# CapsStack Summary"))
+        XCTAssertTrue(markdown.contains("## Progress"))
+        XCTAssertTrue(markdown.contains("## Current state"))
+        XCTAssertTrue(markdown.contains("## Decisions"))
+        XCTAssertTrue(markdown.contains("## Blockers"))
+        XCTAssertTrue(markdown.contains("## Next steps"))
+        XCTAssertTrue(markdown.contains("**Sources**: Codex"))
+        XCTAssertTrue(markdown.contains("**Summarizer CLI**: Codex CLI"))
         XCTAssertTrue(markdown.contains("**Codex — s1**"))
-        XCTAssertTrue(markdown.contains("退席前メモ"))
+        XCTAssertTrue(markdown.contains("Away memo"))
     }
 
     func testApplicationListLimitAndMissingEntryFailure() throws {

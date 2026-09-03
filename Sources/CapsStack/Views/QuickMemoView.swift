@@ -8,10 +8,10 @@ struct QuickMemoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("退席前メモ")
+                Text("Away memo")
                     .font(.headline)
 
-                Text("GUIアプリなど、ログに残らない作業の補足を要約へ含めます。")
+                Text("Add context for work that is not captured in logs, such as GUI apps.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -23,17 +23,17 @@ struct QuickMemoView: View {
                 .frame(width: 400, height: 120)
                 .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                 .focused($isEditorFocused)
-                .accessibilityLabel("退席前メモ")
+                .accessibilityLabel("Away memo")
 
             HStack {
-                Button("消去", role: .destructive) {
+                Button("Clear", role: .destructive) {
                     quickMemoText = ""
                 }
                 .disabled(quickMemoText.isEmpty)
 
                 Spacer()
 
-                Button("完了") {
+                Button("Done") {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

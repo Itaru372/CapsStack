@@ -54,11 +54,11 @@ struct SetupView: View {
             BrandAppIcon(size: 58)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("戻った瞬間、\n次の一手がわかる。")
+                Text("Come back caught up.\nKnow your next move.")
                     .font(.system(size: 32, weight: .bold, design: .serif))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Caps Lockを退席スイッチにして、ローカルの作業履歴から復帰ブリーフを作ります。")
+                Text("Use Caps Lock as your away switch and build a return brief from local work history.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -72,7 +72,7 @@ struct SetupView: View {
 
             Spacer(minLength: 24)
 
-            Label("セッション本文とメモは、このMac上の処理にだけ使われます。", systemImage: "lock.shield")
+            Label("Session content and memos are processed only on this Mac.", systemImage: "lock.shield")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -84,9 +84,9 @@ struct SetupView: View {
 
     private var setupHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("セットアップ")
+            Text("Setup")
                 .font(.system(size: 28, weight: .bold, design: .serif))
-            Text("ステップ \(currentStep.rawValue + 1) / \(SetupStep.allCases.count) ・ \(currentStep.title)")
+            Text("Step \(currentStep.rawValue + 1) of \(SetupStep.allCases.count) · \(currentStep.title)")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -107,9 +107,9 @@ struct SetupView: View {
     }
 
     private var collectorsSection: some View {
-        SetupSection(number: 1, title: "作業履歴の収集元") {
+        SetupSection(number: 1, title: "Work history sources") {
             if detectedCollectors.isEmpty {
-                unavailableMessage("対応エージェントや読み取り可能な履歴はまだ見つかりません。退席前メモだけでも利用できます。")
+                unavailableMessage("No supported agents or readable history were found yet. You can still use an away memo.")
             } else {
                 VStack(spacing: 8) {
                     ForEach(detectedCollectors) { kind in
@@ -129,8 +129,8 @@ struct SetupView: View {
                         }
                         .toggleStyle(.switch)
                         .disabled(cannotEnableCollector(kind))
-                        .accessibilityLabel("\(kind.collectionDisplayName)の収集")
-                        .accessibilityValue(isCollectorEnabled(kind) ? "オン" : "オフ")
+                        .accessibilityLabel("Collect from \(kind.collectionDisplayName)")
+                        .accessibilityValue(isCollectorEnabled(kind) ? "On" : "Off")
                         .padding(.horizontal, 14)
                         .frame(height: 64)
                         .frame(maxWidth: .infinity)
@@ -143,9 +143,9 @@ struct SetupView: View {
     }
 
     private var summarizerSection: some View {
-        SetupSection(number: 2, title: "復帰ブリーフの要約担当") {
+        SetupSection(number: 2, title: "Return brief summarizer") {
             if availableSummarizers.isEmpty {
-                unavailableMessage("要約に使えるCLIが見つかりません。インストール後に再確認するか、実行ファイルを設定してください。")
+                unavailableMessage("No CLI is available for summarization. Install one and check again, or set its executable path.")
             } else {
                 VStack(spacing: 8) {
                     ForEach(availableSummarizers) { kind in
@@ -179,10 +179,10 @@ struct SetupView: View {
     }
 
     private var telemetrySection: some View {
-        SetupSection(number: 3, title: "匿名テレメトリ") {
+        SetupSection(number: 3, title: "Anonymous telemetry") {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(
-                    "匿名の利用状況を共有する",
+                    "Share anonymous usage data",
                     isOn: Binding(
                         get: { controller.isTelemetryEnabled },
                         set: { controller.setTelemetryEnabled($0) }
@@ -204,11 +204,11 @@ struct SetupView: View {
     }
 
     private var usageSection: some View {
-        SetupSection(number: 4, title: "使い方") {
+        SetupSection(number: 4, title: "How it works") {
             VStack(alignment: .leading, spacing: 10) {
-                usageStep(symbol: "capslock.fill", title: "Caps LockをON", detail: "退席区間を開始")
-                usageStep(symbol: "cup.and.saucer.fill", title: "作業から離れる", detail: "CLI履歴をローカル収集")
-                usageStep(symbol: "text.page.fill", title: "Caps LockをOFF", detail: "復帰ブリーフを生成")
+                usageStep(symbol: "capslock.fill", title: "Turn Caps Lock on", detail: "Start an away interval")
+                usageStep(symbol: "cup.and.saucer.fill", title: "Step away", detail: "Collect CLI history locally")
+                usageStep(symbol: "text.page.fill", title: "Turn Caps Lock off", detail: "Generate a return brief")
             }
             .frame(maxWidth: .infinity)
             .padding(16)
@@ -220,26 +220,26 @@ struct SetupView: View {
     private var footer: some View {
         HStack(spacing: 12) {
             if currentStep != .collectors {
-                Button("戻る") {
+                Button("Back") {
                     move(to: currentStep.previous ?? .collectors)
                 }
             }
 
             if currentStep == .collectors || currentStep == .summarizer {
-                Button("再確認") {
+                Button("Check again") {
                     Task { await controller.refreshCLIStatuses() }
                 }
             }
 
             if currentStep == .summarizer && !canCompleteSetup {
-                Button("詳細設定を開く") {
+                Button("Open Advanced Settings") {
                     openSettings()
                 }
             }
 
             Spacer()
 
-            Button(currentStep == .usage ? "CapsStackを始める" : "次へ") {
+            Button(currentStep == .usage ? "Start using CapsStack" : "Next") {
                 if let next = currentStep.next {
                     move(to: next)
                 } else {
@@ -271,9 +271,9 @@ struct SetupView: View {
 
     private var telemetryDetail: String {
         if !controller.isTelemetryConfigured {
-            return "このビルドには送信先が設定されていないため、匿名イベントは送信されません。"
+            return "Anonymous events are not sent because this build has no telemetry destination configured."
         }
-        return "復帰ブリーフの成功率や失敗種別などの集計イベントだけを送信します。履歴、メモ、セッション本文、パス、認証情報は送信しません。"
+        return "Only aggregate events such as return-brief success rates and failure types are sent. History, memos, session content, paths, and credentials are never sent."
     }
 
     private func normalizeSelections() {
@@ -314,7 +314,7 @@ struct SetupView: View {
     }
 
     private func collectorStatus(for kind: CLIKind) -> String {
-        guard let status = controller.cliStatuses[kind] else { return "確認中…" }
+        guard let status = controller.cliStatuses[kind] else { return "Checking…" }
         return status.collectionStatusDescription
     }
 
@@ -362,7 +362,7 @@ struct SetupView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityValue(step == currentStep ? "現在のステップ" : step.rawValue < currentStep.rawValue ? "完了" : "未完了")
+        .accessibilityValue(step == currentStep ? "Current step" : step.rawValue < currentStep.rawValue ? "Completed" : "Not completed")
     }
 
     private func usageStep(symbol: String, title: String, detail: String) -> some View {
@@ -403,19 +403,19 @@ private enum SetupStep: Int, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .collectors: "収集元を確認"
-        case .summarizer: "要約担当を選択"
-        case .telemetry: "プライバシーを確認"
-        case .usage: "Caps Lockで開始"
+        case .collectors: "Review sources"
+        case .summarizer: "Choose a summarizer"
+        case .telemetry: "Review privacy"
+        case .usage: "Start with Caps Lock"
         }
     }
 
     var detail: String {
         switch self {
-        case .collectors: "検出したエージェントを自動で選択"
-        case .summarizer: "普段使うCLIでブリーフを生成"
-        case .telemetry: "匿名テレメトリは初期状態でOFF"
-        case .usage: "ONで退席、OFFで復帰"
+        case .collectors: "Select detected agents automatically"
+        case .summarizer: "Generate briefs with your preferred CLI"
+        case .telemetry: "Anonymous telemetry starts off"
+        case .usage: "On to step away, off to return"
         }
     }
 

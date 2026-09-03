@@ -20,10 +20,10 @@ enum CLIArgumentError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .unknownCommand(let command): "不明なコマンドです: \(command)"
-        case .missingArgument(let argument): "引数が必要です: \(argument)"
-        case .invalidArgument(let argument): "引数が不正です: \(argument)"
-        case .conflictingOptions(let options): "同時に指定できないオプションです: \(options)"
+        case .unknownCommand(let command): "Unknown command: \(command)"
+        case .missingArgument(let argument): "Missing argument: \(argument)"
+        case .invalidArgument(let argument): "Invalid argument: \(argument)"
+        case .conflictingOptions(let options): "Conflicting options: \(options)"
         }
     }
 }
@@ -110,9 +110,9 @@ enum CLIArgumentParser {
                 }
             }
             if stdin && !textParts.isEmpty {
-                throw CLIArgumentError.conflictingOptions("--stdin と <text>")
+                throw CLIArgumentError.conflictingOptions("--stdin and <text>")
             }
-            if !stdin && textParts.isEmpty { throw CLIArgumentError.missingArgument("<text> または --stdin") }
+            if !stdin && textParts.isEmpty { throw CLIArgumentError.missingArgument("<text> or --stdin") }
             return .memoSet(text: textParts.isEmpty ? nil : textParts.joined(separator: " "), stdin: stdin, json: json)
         default:
             throw CLIArgumentError.unknownCommand("memo \(action)")
@@ -139,7 +139,7 @@ enum CLIArgumentParser {
             default: throw CLIArgumentError.invalidArgument(argument)
             }
             guard mode == .human else {
-                throw CLIArgumentError.conflictingOptions("--json と --markdown")
+                throw CLIArgumentError.conflictingOptions("--json and --markdown")
             }
             mode = requested
         }

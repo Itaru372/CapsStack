@@ -2,7 +2,7 @@
 
 **Document version:** v1
 **Last updated:** 2026-09-02
-**Status:** Codebase-derived working context. Items marked as hypotheses or unknown require customer/business validation. The canonical `.agents/product-marketing.md` path was not writable in this workspace.
+**Status:** Codebase-derived working context. Items marked as hypotheses or unknown require customer/business validation.
 
 ## Product Overview
 

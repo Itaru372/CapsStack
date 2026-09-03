@@ -11,21 +11,21 @@ struct MenuBarView: View {
     @AppStorage(PreferenceKeys.quickMemo) private var quickMemoText = ""
 
     private var statusActionTitle: String {
-        controller.phase == .away ? "今すぐ復帰" : "退席を開始"
+        controller.phase == .away ? "Return now" : "Step away"
     }
 
     private var quickMemoTitle: String {
         QuickMemoPreferences(text: quickMemoText).trimmedText == nil
-            ? "退席前メモ..."
-            : "退席前メモを編集..."
+            ? "Away memo…"
+            : "Edit away memo…"
     }
 
     private var notice: String? {
         if !controller.isCapsStackEnabled {
-            return "設定でCapsStackを有効にしてください"
+            return "Enable CapsStack in Settings"
         }
         if controller.phase == .failed {
-            return "履歴から詳細を確認できます"
+            return "Review the details in History"
         }
         return nil
     }
@@ -36,7 +36,7 @@ struct MenuBarView: View {
         } icon: {
             Image(systemName: controller.phase.menuSystemImage)
         }
-        .accessibilityLabel("CapsStackの状態: \(controller.stateTitle)")
+        .accessibilityLabel("CapsStack status: \(controller.stateTitle)")
 
         if let notice {
             Text(notice)
@@ -65,12 +65,12 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button("履歴を開く") {
+        Button("Open History") {
             activateAndOpenWindow(id: "history")
         }
         .keyboardShortcut("o", modifiers: [.command])
 
-        Button("設定...") {
+        Button("Settings…") {
             NSApp.activate(ignoringOtherApps: true)
             openSettings()
         }
@@ -78,7 +78,7 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button("CapsStackを終了") {
+        Button("Quit CapsStack") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: [.command])

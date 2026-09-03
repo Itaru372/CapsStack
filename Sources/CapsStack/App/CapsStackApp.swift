@@ -7,9 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The approved design uses a regular macOS window plus the native menu bar,
         // while MenuBarExtra keeps away/return controls available system-wide.
         NSApp.setActivationPolicy(.regular)
-        if let icon = BrandAssets.nsImage(named: "CapsStackAppIcon") {
-            NSApp.applicationIconImage = icon
-        }
+        // Keep the Dock icon sourced from the bundle's AppIcon.icns. Replacing it with
+        // the in-app PNG here makes macOS visibly switch icon sources after launch.
         // A freshly built bundle can otherwise open behind an older CapsStack instance (or
         // another app), making the user interact with a stale-looking window.
         NSApp.activate(ignoringOtherApps: true)
@@ -33,7 +32,7 @@ struct CapsStackApp: App {
     @AppStorage(PreferenceKeys.setupCompleted) private var setupCompleted = false
 
     var body: some Scene {
-        WindowGroup("CapsStack 履歴", id: "history") {
+        WindowGroup("CapsStack History", id: "history") {
             Group {
                 if setupCompleted {
                     HistoryView(controller: controller)
@@ -60,7 +59,7 @@ struct CapsStackApp: App {
             CapsStackCommands(controller: controller)
         }
 
-        Window("退席前メモ", id: "quick-memo") {
+        Window("Away Memo", id: "quick-memo") {
             QuickMemoView()
         }
         .windowResizability(.contentSize)
@@ -81,8 +80,8 @@ private struct CapsStackCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
-        CommandMenu("履歴") {
-            Button("履歴を開く") {
+        CommandMenu("History") {
+            Button("Open History") {
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "history")
             }
@@ -90,14 +89,14 @@ private struct CapsStackCommands: Commands {
 
             Divider()
 
-            Button("再読み込み") {
+            Button("Reload") {
                 controller.reloadHistory()
             }
             .keyboardShortcut("r", modifiers: [.command])
         }
 
-        CommandMenu("設定") {
-            Button("退席前メモ...") {
+        CommandMenu("Settings") {
+            Button("Away Memo…") {
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "quick-memo")
             }
@@ -105,7 +104,7 @@ private struct CapsStackCommands: Commands {
 
             Divider()
 
-            Button("設定...") {
+            Button("Settings…") {
                 NSApp.activate(ignoringOtherApps: true)
                 openSettings()
             }

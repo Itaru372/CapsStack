@@ -39,9 +39,9 @@ struct HistoryView: View {
                     ReturnBriefView(entry: entry)
                 } else {
                     ContentUnavailableView(
-                        "履歴はまだありません",
+                        "No history yet",
                         systemImage: "clock.arrow.circlepath",
-                        description: Text("Caps LockをONにすると退席記録を開始します。")
+                        description: Text("Turn Caps Lock on to start recording an away interval.")
                     )
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 72)
@@ -54,22 +54,22 @@ struct HistoryView: View {
         .background(BrandPalette.BriefTheme.canvas.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(BrandPalette.BriefTheme.signal)
-        .navigationTitle("履歴")
+        .navigationTitle("History")
         .confirmationDialog(
-            "選択した履歴を削除しますか？",
+            "Delete the selected history entry?",
             isPresented: Binding(
                 get: { entryPendingDeletion != nil },
                 set: { if !$0 { entryPendingDeletion = nil } }
             ),
             titleVisibility: .visible
         ) {
-            Button("削除", role: .destructive) {
+            Button("Delete", role: .destructive) {
                 if let entry = entryPendingDeletion {
                     controller.delete(entry)
                 }
                 entryPendingDeletion = nil
             }
-            Button("キャンセル", role: .cancel) {
+            Button("Cancel", role: .cancel) {
                 entryPendingDeletion = nil
             }
         }
@@ -104,11 +104,11 @@ struct HistoryView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("履歴")
+            Text("History")
                 .font(.system(size: 32, weight: .bold))
 
             if controller.isShowingDemoData {
-                Text("デモデータ")
+                Text("Demo data")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(BrandPalette.BriefTheme.signal)
                     .padding(.horizontal, 8)
@@ -156,7 +156,7 @@ struct HistoryView: View {
             forType: .string
         )
         controller.recordHistoryAction(.copied, for: entry)
-        exportMessage = entry.summary == nil ? "履歴の状態をコピーしました" : "コピーしました"
+        exportMessage = entry.summary == nil ? "History status copied" : "Copied"
     }
 
     private func export(_ entry: HistoryEntry) {
@@ -169,9 +169,9 @@ struct HistoryView: View {
                 try SummaryMarkdown.document(for: entry)
                     .write(to: url, atomically: true, encoding: .utf8)
                 controller.recordHistoryAction(.exported, for: entry)
-                exportMessage = entry.summary == nil ? "履歴の状態を保存しました" : "保存しました"
+                exportMessage = entry.summary == nil ? "History status saved" : "Saved"
             } catch {
-                exportMessage = "保存できませんでした"
+                exportMessage = "Could not save"
             }
         }
     }
@@ -277,7 +277,7 @@ private struct DaySummaryCard: View {
                 ActivityBars(entries: bucket.entries)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("\(bucket.sessionCount)件")
+                    Text("\(bucket.sessionCount) sessions")
                         .font(.caption2.weight(.medium))
                     Text(Self.durationText(for: bucket.duration))
                         .font(.caption2.monospacedDigit())
@@ -353,18 +353,18 @@ private struct SessionHeaderCard: View {
             Button {
                 copy()
             } label: {
-                Label(entry.summary == nil ? "状態をコピー" : "コピー", systemImage: "doc.on.doc")
+                Label(entry.summary == nil ? "Copy status" : "Copy", systemImage: "doc.on.doc")
             }
             .buttonStyle(.borderedProminent)
 
             Menu {
-                Button("Markdown書き出し", action: export)
+                Button("Export Markdown", action: export)
                 if entry.status == .pending {
-                    Button("再要約", action: retry)
+                    Button("Retry summary", action: retry)
                         .disabled(!canRetry)
                 }
                 Divider()
-                Button("削除", role: .destructive, action: delete)
+                Button("Delete", role: .destructive, action: delete)
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .frame(width: 30, height: 30)
@@ -381,15 +381,15 @@ private struct SessionHeaderCard: View {
     private var statusPill: some View {
         switch entry.status {
         case .completed:
-            Label("\(entry.sessionCount)セッション", systemImage: "checkmark.circle.fill")
+            Label("\(entry.sessionCount) sessions", systemImage: "checkmark.circle.fill")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(BrandPalette.BriefTheme.signal)
         case .pending:
-            Label("要約待ち", systemImage: "exclamationmark.triangle.fill")
+            Label("Pending summary", systemImage: "exclamationmark.triangle.fill")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(Color.orange)
         case .empty:
-            Label("対象なし", systemImage: "tray")
+            Label("No sessions", systemImage: "tray")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
         }
@@ -402,7 +402,7 @@ private struct ReturnBriefView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 34) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("復帰ブリーフ")
+                Text("Return brief")
                     .font(.system(size: 40, weight: .bold))
 
                 if let summary = entry.summary {
@@ -416,19 +416,19 @@ private struct ReturnBriefView: View {
 
             if let summary = entry.summary {
                 BriefSection(
-                    title: "進捗",
+                    title: "Progress",
                     symbolName: "scope",
                     items: summary.progress,
                     checklist: false
                 )
                 BriefSection(
-                    title: "決定",
+                    title: "Decisions",
                     symbolName: "checkmark",
                     items: summary.decisions,
                     checklist: false
                 )
                 BriefSection(
-                    title: "次の一手",
+                    title: "Next steps",
                     symbolName: "arrow.right",
                     items: summary.nextSteps,
                     checklist: true
@@ -445,20 +445,20 @@ private struct ReturnBriefView: View {
                 }
             } else if entry.status == .pending {
                 VStack(alignment: .leading, spacing: 10) {
-                    Label("要約できませんでした", systemImage: "exclamationmark.triangle")
+                    Label("Summary unavailable", systemImage: "exclamationmark.triangle")
                         .font(.headline)
-                    Text(entry.errorMessage ?? "要約CLIを確認して再試行してください。")
+                    Text(entry.errorMessage ?? "Check the summarizer CLI and try again.")
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
             } else {
-                ContentUnavailableView("対象セッションなし", systemImage: "tray")
+                ContentUnavailableView("No source sessions", systemImage: "tray")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if let memo = entry.quickMemo, !memo.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("退席前メモ", systemImage: "square.and.pencil")
+                    Label("Away memo", systemImage: "square.and.pencil")
                         .font(.subheadline.weight(.semibold))
                     Text(memo)
                         .font(.callout)
@@ -473,7 +473,7 @@ private struct ReturnBriefView: View {
 
             if !entry.collectionIssues.isEmpty {
                 BriefSection(
-                    title: "収集時の注意",
+                    title: "Collection notes",
                     symbolName: "info",
                     items: entry.collectionIssues.map { "\($0.provider.collectionDisplayName): \($0.message)" },
                     checklist: false
@@ -488,10 +488,10 @@ private struct ReturnBriefView: View {
     private func supplementalSections(_ summary: SummaryDocument) -> some View {
         VStack(alignment: .leading, spacing: 20) {
             if !summary.currentState.isEmpty {
-                CompactList(title: "現在の状態", items: summary.currentState)
+                CompactList(title: "Current state", items: summary.currentState)
             }
             if !summary.blockers.isEmpty {
-                CompactList(title: "問題・確認待ち", items: summary.blockers)
+                CompactList(title: "Blockers", items: summary.blockers)
             }
         }
     }
@@ -504,14 +504,14 @@ private struct ReturnBriefView: View {
         )
 
         return HStack(spacing: 8) {
-            Text("作成: \(entry.interval.end, format: .dateTime.year().month().day().hour().minute())")
+            Text("Created: \(entry.interval.end, format: .dateTime.year().month().day().hour().minute())")
             Text("|").foregroundStyle(.tertiary)
-            Text("モデル: \(entry.provider?.displayName ?? "未設定")")
+            Text("Model: \(entry.provider?.displayName ?? "Not set")")
             Text("|").foregroundStyle(.tertiary)
-            Text("文字数: \(characterCount)")
+            Text("Characters: \(characterCount)")
             if entry.fallbackUsed {
                 Text("|").foregroundStyle(.tertiary)
-                Text("フォールバック使用")
+                Text("Fallback used")
                     .foregroundStyle(.secondary)
             }
         }
@@ -526,7 +526,7 @@ private struct ProjectBriefsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("プロジェクト別", systemImage: "folder")
+            Label("By project", systemImage: "folder")
                 .font(.subheadline.weight(.bold))
 
             ForEach(projects) { project in
@@ -535,7 +535,7 @@ private struct ProjectBriefsView: View {
                         Text(project.name)
                             .font(.headline)
                         Spacer()
-                        Text("\(project.sessions.count)セッション")
+                        Text("\(project.sessions.count) sessions")
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
@@ -560,7 +560,7 @@ private struct ProjectBriefsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(BrandPalette.BriefTheme.panel, in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityElement(children: .contain)
-                .accessibilityLabel("\(project.name)、\(project.sessions.count)セッション")
+                .accessibilityLabel("\(project.name), \(project.sessions.count) sessions")
             }
         }
     }
@@ -571,7 +571,7 @@ private struct LegacySessionBriefsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("セッション別", systemImage: "terminal")
+            Label("By session", systemImage: "terminal")
                 .font(.subheadline.weight(.bold))
             ForEach(sessions) { session in
                 VStack(alignment: .leading, spacing: 4) {

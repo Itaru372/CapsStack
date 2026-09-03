@@ -88,7 +88,7 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(codexResult.sessions[0].provider, .codex)
         XCTAssertEqual(codexResult.sessions[0].events.count, 1)
         XCTAssertEqual(codexResult.sessions[0].events[0].content, "inside codex")
-        XCTAssertTrue(codexResult.issues.contains { $0.message.contains("不正なJSONL") })
+        XCTAssertTrue(codexResult.issues.contains { $0.message.contains("invalid JSONL") })
 
         XCTAssertEqual(claudeResult.provider, .claudeCode)
         XCTAssertEqual(claudeResult.sessions.count, 1)
@@ -302,7 +302,7 @@ final class BackendTests: XCTestCase {
         )
 
         XCTAssertFalse(openCode.canCollect)
-        XCTAssertTrue(openCode.collectionStatusDescription.contains("CLIが必要"))
+        XCTAssertTrue(openCode.collectionStatusDescription.contains("OpenCode CLI is required"))
         XCTAssertTrue(codex.canCollect)
     }
 
@@ -532,7 +532,7 @@ final class BackendTests: XCTestCase {
             guard case .processFailed(.opencode, let message) = error else {
                 return XCTFail("unexpected error: \(error)")
             }
-            XCTAssertTrue(message.contains("互換性がありません"))
+            XCTAssertTrue(message.contains("not compatible"))
         }
         XCTAssertTrue(runner.specifications.isEmpty)
     }
@@ -564,7 +564,7 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(result.sessions.count, 1)
         XCTAssertEqual(result.sessions.first?.events.first?.content, "OpenCodeの進捗")
         XCTAssertEqual(result.sessions.first?.effectiveClient, .shared)
-        XCTAssertEqual(result.sessions.first?.sourceDisplayName, "OpenCode 共有セッション")
+        XCTAssertEqual(result.sessions.first?.sourceDisplayName, "OpenCode Shared Session")
         XCTAssertEqual(calls.first, ["session", "list", "--max-count", "2000", "--format", "json"])
         XCTAssertEqual(calls.last, ["export", "session-1"])
     }
@@ -881,7 +881,7 @@ final class BackendTests: XCTestCase {
             ).collect(interval: interval)
 
             XCTAssertTrue(result.sessions.isEmpty)
-            XCTAssertTrue(result.issues.contains { $0.message.contains("直接解釈しませんでした") })
+            XCTAssertTrue(result.issues.contains { $0.message.contains("not parsed directly") })
         }
     }
 
@@ -1033,7 +1033,7 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(provider.callCount, 5)
         XCTAssertEqual(provider.receivedBatches.first?.sessions.first?.id, "session-0")
         XCTAssertEqual(provider.receivedBatches[3].sessions.first?.id, "session-11")
-        XCTAssertTrue(outcome.document.blockers.contains { $0.contains("8個省略") })
+        XCTAssertTrue(outcome.document.blockers.contains { $0.contains("8 intermediate summary chunks") })
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -1448,7 +1448,7 @@ final class BackendTests: XCTestCase {
         let entry = try XCTUnwrap(controller.history.first)
         XCTAssertEqual(entry.status, .empty)
         XCTAssertEqual(entry.sessionCount, 0)
-        XCTAssertEqual(entry.errorMessage, "収集元が選択されていません。")
+        XCTAssertEqual(entry.errorMessage, "No collection sources are selected.")
 
         controller.setCapsStackEnabled(false)
         await Task.yield()
@@ -1499,7 +1499,7 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(controller.phase, .idle)
         XCTAssertNil(defaults.object(forKey: PreferenceKeys.awayStart))
         XCTAssertEqual(controller.history.first?.status, .empty)
-        XCTAssertEqual(controller.history.first?.errorMessage, "収集元が選択されていません。")
+        XCTAssertEqual(controller.history.first?.errorMessage, "No collection sources are selected.")
 
         controller.setCapsStackEnabled(false)
         await Task.yield()
@@ -1600,12 +1600,12 @@ final class BackendTests: XCTestCase {
         let markdown = SummaryMarkdown.document(document, entry: entry)
 
         XCTAssertTrue(markdown.contains("要約の概要"))
-        XCTAssertTrue(markdown.contains("## 進んだ内容"))
+        XCTAssertTrue(markdown.contains("## Progress"))
         XCTAssertTrue(markdown.contains("- 実装を進めた"))
-        XCTAssertTrue(markdown.contains("## 重要な判断"))
-        XCTAssertTrue(markdown.contains("## 次の予定"))
-        XCTAssertTrue(markdown.contains("**退席前メモ**: GUI版エージェントも動いていた"))
-        XCTAssertTrue(markdown.contains("Claude Code CLI（フォールバック）"))
+        XCTAssertTrue(markdown.contains("## Decisions"))
+        XCTAssertTrue(markdown.contains("## Next steps"))
+        XCTAssertTrue(markdown.contains("**Away memo**: GUI版エージェントも動いていた"))
+        XCTAssertTrue(markdown.contains("Claude Code CLI (fallback)"))
         XCTAssertTrue(markdown.contains("02:05"))
     }
 
@@ -1621,6 +1621,7 @@ final class BackendTests: XCTestCase {
         let prompt = String(decoding: promptData, as: UTF8.self)
 
         XCTAssertTrue(prompt.contains("quickMemo"))
+        XCTAssertTrue(prompt.contains("Write every summary field in English"))
         XCTAssertTrue(prompt.contains("Cursorでリファクタリングしていた"))
     }
 

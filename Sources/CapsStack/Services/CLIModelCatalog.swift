@@ -15,15 +15,15 @@ enum CLIModelListingError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unsupported(let kind):
-            return "\(kind.displayName)はモデル一覧の取得に対応していません。"
+            return "\(kind.displayName) does not support model listing."
         case .executableNotFound(let kind):
-            return "\(kind.displayName)の実行ファイルが見つかりません。"
+            return "\(kind.displayName) executable was not found."
         case .timedOut(let kind):
-            return "\(kind.displayName)のモデル一覧取得がタイムアウトしました。"
+            return "Timed out while fetching the \(kind.displayName) model list."
         case .processFailed(let kind):
-            return "\(kind.displayName)からモデル一覧を取得できませんでした。"
+            return "Could not fetch the model list from \(kind.displayName)."
         case .invalidOutput(let kind):
-            return "\(kind.displayName)のモデル一覧を解釈できませんでした。"
+            return "Could not parse the \(kind.displayName) model list."
         }
     }
 }

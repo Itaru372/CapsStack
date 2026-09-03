@@ -235,7 +235,7 @@ struct SummaryOrchestrator {
             }
         }
         let omissionNotice = omittedChunkCount > 0
-            ? "入力上限により、中間の要約チャンクを\(omittedChunkCount)個省略しました。"
+            ? "The input limit omitted \(omittedChunkCount) intermediate summary chunks."
             : nil
         var integrationIssues = boundedIssues(batch.issues)
         if let omissionNotice {
@@ -272,7 +272,7 @@ struct SummaryOrchestrator {
         }
 
         let integrationOmissionNotice = omittedProjectCount > 0
-            ? "統合入力上限により、プロジェクト要約を一部省略しました。"
+            ? "The combined input limit omitted part of the project summaries."
             : nil
         if let integrationOmissionNotice {
             integrationIssues.append(CollectionIssue(provider: kind, message: integrationOmissionNotice))
@@ -417,7 +417,7 @@ struct SummaryOrchestrator {
         if result.count < issues.count, let provider = issues.first?.provider {
             result.append(CollectionIssue(
                 provider: provider,
-                message: "ほか\(issues.count - result.count)件の収集警告を省略しました。"
+                message: "Omitted \(issues.count - result.count) additional collection warnings."
             ))
         }
         return result

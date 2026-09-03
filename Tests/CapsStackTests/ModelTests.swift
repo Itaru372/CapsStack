@@ -31,10 +31,10 @@ final class ModelTests: XCTestCase {
 
         let markdown = SummaryMarkdown.document(for: entry)
 
-        XCTAssertTrue(markdown.contains("状態**: 要約待ち"))
-        XCTAssertTrue(markdown.contains("収集元**: Codex, Claude Code"))
+        XCTAssertTrue(markdown.contains("Status**: Pending summary"))
+        XCTAssertTrue(markdown.contains("Sources**: Codex, Claude Code"))
         XCTAssertTrue(markdown.contains("要約CLIがタイムアウトしました。"))
-        XCTAssertTrue(markdown.contains("退席前メモ**: 復帰後に確認する"))
+        XCTAssertTrue(markdown.contains("Away memo**: 復帰後に確認する"))
         XCTAssertTrue(markdown.contains("Claude Code: ログディレクトリがありません"))
     }
 
@@ -140,7 +140,7 @@ final class ModelTests: XCTestCase {
 
         controller.cancelProviderTest()
         XCTAssertNil(controller.testingProvider)
-        XCTAssertEqual(controller.providerTestMessages[.codex], "キャンセルしました")
+        XCTAssertEqual(controller.providerTestMessages[.codex], "Cancelled")
         await Task.yield()
     }
 

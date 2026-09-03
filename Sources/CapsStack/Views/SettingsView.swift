@@ -10,7 +10,7 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                TextField("設定を検索...", text: $searchText)
+                TextField("Search settings…", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.callout)
                     .padding(.horizontal, 10)
@@ -65,14 +65,14 @@ struct SettingsView: View {
         .preferredColorScheme(.dark)
         .tint(BrandPalette.BriefTheme.signal)
         .confirmationDialog(
-            "すべての履歴と再試行データを削除しますか？",
+            "Delete all history and retry data?",
             isPresented: $showsClearHistoryConfirmation,
             titleVisibility: .visible
         ) {
-            Button("すべて削除", role: .destructive) {
+            Button("Delete All", role: .destructive) {
                 controller.clearAllHistory()
             }
-            Button("キャンセル", role: .cancel) {}
+            Button("Cancel", role: .cancel) {}
         }
         .onChange(of: searchText) { _, newValue in
             let sections = filteredSections
@@ -156,13 +156,13 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .collectors: "収集元"
-        case .summarizers: "要約担当"
-        case .general: "一般"
-        case .notifications: "通知"
-        case .hotkeys: "ホットキー"
-        case .data: "データ管理"
-        case .advanced: "詳細設定"
+        case .collectors: "Sources"
+        case .summarizers: "Summarizer"
+        case .general: "General"
+        case .notifications: "Notifications"
+        case .hotkeys: "Keyboard shortcuts"
+        case .data: "Data management"
+        case .advanced: "Advanced"
         }
     }
 
@@ -180,13 +180,13 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 
     var searchKeywords: String {
         switch self {
-        case .collectors: "Codex Claude OpenCode Pi GitHub Copilot Kilo Goose Qwen Continue Gemini 収集 ログ 接続"
-        case .summarizers: "要約 CLI モデル fallback フォールバック signal"
-        case .general: "Caps Lock 起動 常駐 アクセシビリティ 退席"
-        case .notifications: "許可 通知 alert サウンド"
-        case .hotkeys: "ショートカット command 履歴 設定 終了"
-        case .data: "履歴 削除 バックアップ フォルダ メモ プライバシー"
-        case .advanced: "実行ファイル パス reasoning effort variant thinking"
+        case .collectors: "Codex Claude OpenCode Pi GitHub Copilot Kilo Goose Qwen Continue Gemini sources logs connection"
+        case .summarizers: "summary CLI model fallback signal reasoning"
+        case .general: "Caps Lock launch background accessibility away"
+        case .notifications: "permission notifications alert sound"
+        case .hotkeys: "shortcuts command history settings quit"
+        case .data: "history delete backup folder memo privacy"
+        case .advanced: "executable path reasoning effort variant thinking"
         }
     }
 }
@@ -226,8 +226,8 @@ private struct CollectorSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             SettingsHeader(
-                title: "収集元",
-                message: "退席中に収集するエージェントを選択します。対応するCLI・Desktop・IDEの履歴をまとめて扱います。"
+                title: "Sources",
+                message: "Choose which agents to collect while you are away. History from supported CLI, Desktop, and IDE clients is combined."
             )
 
             VStack(spacing: 10) {
@@ -236,7 +236,7 @@ private struct CollectorSettingsView: View {
                 }
 
                 if !unavailableCollectorKinds.isEmpty {
-                    DisclosureGroup("未検出のエージェント（\(unavailableCollectorKinds.count)）", isExpanded: $showsUnavailableCollectors) {
+                    DisclosureGroup("Unavailable agents (\(unavailableCollectorKinds.count))", isExpanded: $showsUnavailableCollectors) {
                         VStack(spacing: 10) {
                             ForEach(unavailableCollectorKinds) { kind in
                                 collectorRow(kind: kind, isOn: binding(for: kind))
@@ -251,7 +251,7 @@ private struct CollectorSettingsView: View {
             }
 
             if !CLIKind.collectorCases.contains(where: isEnabled) {
-                Label("収集元が選択されていません", systemImage: "exclamationmark.triangle")
+                Label("No collection sources selected", systemImage: "exclamationmark.triangle")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(Color.orange)
                     .padding(14)
@@ -334,8 +334,8 @@ private struct CollectorSettingsView: View {
             }
             .toggleStyle(.switch)
             .disabled(cannotEnable(kind, isOn: isOn))
-            .accessibilityLabel("\(kind.collectionDisplayName)の収集")
-            .accessibilityValue(isOn.wrappedValue ? "オン" : "オフ")
+            .accessibilityLabel("Collect from \(kind.collectionDisplayName)")
+            .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 11))
@@ -349,7 +349,7 @@ private struct CollectorSettingsView: View {
         if let status = controller.cliStatuses[kind] {
             Text(status.collectionStatusDescription)
         } else {
-            Text("確認中...")
+            Text("Checking…")
         }
     }
 
@@ -376,17 +376,22 @@ private struct SummarizerSettingsView: View {
     @AppStorage(PreferenceKeys.kiloModel) private var kiloModel = ""
     @AppStorage(PreferenceKeys.gooseModel) private var gooseModel = ""
     @AppStorage(PreferenceKeys.qwenModel) private var qwenModel = ""
+    @AppStorage(PreferenceKeys.codexReasoning) private var codexReasoning = ""
+    @AppStorage(PreferenceKeys.claudeReasoning) private var claudeReasoning = ""
+    @AppStorage(PreferenceKeys.opencodeReasoning) private var opencodeReasoning = ""
+    @AppStorage(PreferenceKeys.piReasoning) private var piReasoning = ""
+    @AppStorage(PreferenceKeys.copilotReasoning) private var copilotReasoning = ""
     @State private var showsUnavailableSummarizers = false
 
     var body: some View {
         Form {
-            Section("復帰ブリーフの生成") {
-                Picker("担当CLI", selection: $primaryRaw) {
+            Section("Return brief") {
+                Picker("Summarizer CLI", selection: $primaryRaw) {
                     ForEach(displayedSummarizerKinds) { kind in
                         HStack {
                             Label(kind.displayName, systemImage: kind.systemImage)
                             if kind == .codex {
-                                Text("推奨")
+                                Text("Recommended")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(BrandPalette.BriefTheme.signal)
                             }
@@ -397,20 +402,20 @@ private struct SummarizerSettingsView: View {
                 .pickerStyle(.radioGroup)
 
                 if !unavailableSummarizerKinds.isEmpty {
-                    Button(showsUnavailableSummarizers ? "未検出のCLIを隠す" : "未検出のCLIも表示") {
+                    Button(showsUnavailableSummarizers ? "Hide unavailable CLIs" : "Show unavailable CLIs") {
                         showsUnavailableSummarizers.toggle()
                     }
                     .buttonStyle(.link)
                 }
 
                 if let selectedKind, controller.cliStatuses[selectedKind]?.isInstalled == false {
-                    Label("選択中のCLIは未検出です。実行ファイルを詳細設定で指定できます。", systemImage: "exclamationmark.triangle")
+                    Label("The selected CLI was not detected. Set its executable in Advanced settings.", systemImage: "exclamationmark.triangle")
                         .font(.callout)
                         .foregroundStyle(Color.orange)
                 }
 
                 if displayedSummarizerKinds.isEmpty {
-                    Label("利用可能な要約CLIがありません。Codex、Claude Code、OpenCode、Piのいずれかをインストールするか、詳細設定で実行ファイルを指定してください。", systemImage: "exclamationmark.triangle")
+                    Label("No summarizer CLI is available. Install Codex, Claude Code, OpenCode, or Pi, or set an executable in Advanced settings.", systemImage: "exclamationmark.triangle")
                         .font(.callout)
                         .foregroundStyle(Color.orange)
                 }
@@ -421,9 +426,15 @@ private struct SummarizerSettingsView: View {
                         model: modelBinding(for: selectedKind),
                         controller: controller
                     )
+                    if selectedKind.supportsReasoningOverride {
+                        ReasoningSelectionControl(
+                            kind: selectedKind,
+                            reasoning: reasoningBinding(for: selectedKind)
+                        )
+                    }
                 }
 
-                Toggle("失敗時に別のCLIへ切り替える", isOn: $automaticFallback)
+                Toggle("Switch to another CLI if the summary fails", isOn: $automaticFallback)
             }
         }
         .formStyle(.grouped)
@@ -503,6 +514,31 @@ private struct SummarizerSettingsView: View {
             }
         )
     }
+
+    private func reasoningBinding(for kind: CLIKind) -> Binding<String> {
+        Binding(
+            get: {
+                switch kind {
+                case .codex: codexReasoning
+                case .claudeCode: claudeReasoning
+                case .opencode: opencodeReasoning
+                case .pi: piReasoning
+                case .githubCopilot: copilotReasoning
+                case .kiloCode, .goose, .qwenCode, .continueCLI, .geminiCLI: ""
+                }
+            },
+            set: { value in
+                switch kind {
+                case .codex: codexReasoning = value
+                case .claudeCode: claudeReasoning = value
+                case .opencode: opencodeReasoning = value
+                case .pi: piReasoning = value
+                case .githubCopilot: copilotReasoning = value
+                case .kiloCode, .goose, .qwenCode, .continueCLI, .geminiCLI: break
+                }
+            }
+        )
+    }
 }
 
 private struct ModelSelectionControl: View {
@@ -514,12 +550,12 @@ private struct ModelSelectionControl: View {
         if kind.supportsModelListing {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
-                    Picker("モデル", selection: $model) {
-                        Text("CLIの既定値")
+                    Picker("Model", selection: $model) {
+                        Text("CLI default")
                             .tag("")
 
                         if let currentModel, !controller.models(for: kind).contains(where: { $0.id == currentModel }) {
-                            Text("現在の設定: \(currentModel)")
+                            Text("Current setting: \(currentModel)")
                                 .tag(model)
                         }
 
@@ -533,7 +569,7 @@ private struct ModelSelectionControl: View {
                             }
                         }
                     }
-                    .accessibilityLabel("\(kind.displayName)のモデル")
+                    .accessibilityLabel("\(kind.displayName) model")
 
                     Button {
                         Task { await controller.refreshCLIModels(for: kind) }
@@ -542,7 +578,7 @@ private struct ModelSelectionControl: View {
                     }
                     .buttonStyle(.borderless)
                     .disabled(controller.modelFetchState(for: kind) == .loading)
-                    .accessibilityLabel("\(kind.displayName)のモデル一覧を再取得")
+                    .accessibilityLabel("Refresh \(kind.displayName) model list")
                 }
 
                 catalogStatus
@@ -553,7 +589,7 @@ private struct ModelSelectionControl: View {
         } else {
             TextField(kind.modelHint, text: $model)
                 .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("\(kind.displayName)のモデル")
+                .accessibilityLabel("\(kind.displayName) model")
         }
     }
 
@@ -566,30 +602,79 @@ private struct ModelSelectionControl: View {
     private var catalogStatus: some View {
         switch controller.modelFetchState(for: kind) {
         case .idle:
-            Text("モデル一覧を取得できます。")
+            Text("You can fetch the model list.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .loading:
-            Label("モデル一覧を取得中...", systemImage: "arrow.triangle.2.circlepath")
+            Label("Fetching model list…", systemImage: "arrow.triangle.2.circlepath")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .loaded:
             if controller.models(for: kind).isEmpty {
-                Text("利用可能なモデルが返されませんでした。CLIの既定値を使用します。")
+                Text("No models were returned. The CLI default will be used.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text("\(controller.models(for: kind).count)個のモデルを取得済み")
+                Text("Fetched \(controller.models(for: kind).count) models")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         case .failed:
             Label(
-                controller.cliModelErrors[kind] ?? "モデル一覧を取得できませんでした。CLIの既定値を使用できます。",
+                controller.cliModelErrors[kind] ?? "Could not fetch the model list. You can use the CLI default.",
                 systemImage: "exclamationmark.triangle"
             )
             .font(.caption)
             .foregroundStyle(Color.orange)
+        }
+    }
+}
+
+private struct ReasoningSelectionControl: View {
+    let kind: CLIKind
+    @Binding var reasoning: String
+
+    var body: some View {
+        if reasoningOptions.isEmpty {
+            TextField("Reasoning: \(kind.reasoningHint)", text: $reasoning)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("\(kind.displayName) reasoning")
+        } else {
+            Picker("Reasoning", selection: $reasoning) {
+                Text("CLI default")
+                    .tag("")
+
+                if let currentReasoning, !reasoningOptions.contains(currentReasoning) {
+                    Text("Current setting: \(currentReasoning)")
+                        .tag(currentReasoning)
+                }
+
+                ForEach(reasoningOptions, id: \.self) { option in
+                    Text(option)
+                        .tag(option)
+                }
+            }
+            .accessibilityLabel("\(kind.displayName) reasoning")
+        }
+    }
+
+    private var currentReasoning: String? {
+        let trimmed = reasoning.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var reasoningOptions: [String] {
+        switch kind {
+        case .codex:
+            ["none", "minimal", "low", "medium", "high", "xhigh"]
+        case .claudeCode:
+            ["low", "medium", "high", "xhigh", "max"]
+        case .pi:
+            ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+        case .githubCopilot:
+            ["low", "medium", "high", "xhigh", "max"]
+        case .opencode, .kiloCode, .goose, .qwenCode, .continueCLI, .geminiCLI:
+            []
         }
     }
 }
@@ -607,42 +692,42 @@ private struct GeneralSettingsView: View {
     var body: some View {
         Form {
             Section("CapsStack") {
-                Toggle("CapsStack機能を有効にする", isOn: Binding(
+                Toggle("Enable CapsStack", isOn: Binding(
                     get: { capsStackEnabled },
                     set: { newValue in
                         capsStackEnabled = newValue
                         controller.setCapsStackEnabled(newValue)
                     }
                 ))
-                Stepper("最短退席時間: \(minimumAwaySeconds)秒", value: $minimumAwaySeconds, in: 0...3600, step: 5)
+                Stepper("Minimum away time: \(minimumAwaySeconds) seconds", value: $minimumAwaySeconds, in: 0...3600, step: 5)
             }
 
             Section("Caps Lock") {
-                Toggle("本来のCaps Lock入力を無効化", isOn: $suppressOriginalCapsLock)
+                Toggle("Disable normal Caps Lock input", isOn: $suppressOriginalCapsLock)
 
                 if suppressOriginalCapsLock {
                     if controller.isSuppressingOriginalCapsLock {
-                        Label("有効", systemImage: "checkmark.circle.fill")
+                        Label("Enabled", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(BrandPalette.BriefTheme.signal)
                     } else {
-                        Label("アクセシビリティ権限が必要です", systemImage: "lock.shield")
+                        Label("Accessibility permission required", systemImage: "lock.shield")
                             .foregroundStyle(Color.orange)
-                        Button("システム設定を開く") {
+                        Button("Open System Settings") {
                             controller.openAccessibilitySettings()
                         }
                     }
                 }
             }
 
-            Section("常駐") {
-                Toggle("バックグラウンドで常に実行", isOn: Binding(
+            Section("Background") {
+                Toggle("Always run in the background", isOn: Binding(
                     get: { keepRunningInBackground },
                     set: { newValue in
                         keepRunningInBackground = newValue
                         controller.setKeepRunningInBackground(newValue)
                     }
                 ))
-                Toggle("ログイン時に起動", isOn: Binding(
+                Toggle("Launch at login", isOn: Binding(
                     get: { launchAtLogin.isEnabled },
                     set: { launchAtLogin.setEnabled($0) }
                 ))
@@ -653,12 +738,12 @@ private struct GeneralSettingsView: View {
                 }
             }
 
-            Section("セットアップ") {
-                Button("セットアップを開く…") {
+            Section("Setup") {
+                Button("Open setup…") {
                     setupCompleted = false
                     openWindow(id: "history")
                 }
-                Text("収集元、要約担当、匿名テレメトリの選択を見直せます。")
+                Text("Review your source, summarizer, and anonymous telemetry choices.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -676,7 +761,7 @@ private struct NotificationSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            SettingsHeader(title: "通知", message: "復帰時の要約結果をmacOS通知で受け取ります。")
+            SettingsHeader(title: "Notifications", message: "Receive the summary result in a macOS notification when you return.")
 
             HStack(spacing: 16) {
                 Image(systemName: "bell.fill")
@@ -684,7 +769,7 @@ private struct NotificationSettingsView: View {
                     .background(BrandPalette.BriefTheme.signal.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("macOS通知").font(.headline)
+                    Text("macOS notifications").font(.headline)
                     Text(authorizationMessage)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -693,14 +778,14 @@ private struct NotificationSettingsView: View {
                 Spacer()
 
                 if controller.isNotificationAuthorized == true {
-                    Label("許可済み", systemImage: "checkmark.circle.fill")
+                    Label("Allowed", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(BrandPalette.BriefTheme.signal)
                 } else if controller.isNotificationAuthorized == false {
-                    Button("システム設定を開く") {
+                    Button("Open System Settings") {
                         controller.openNotificationSettings()
                     }
                 } else {
-                    Button("許可を要求") {
+                    Button("Request permission") {
                         Task { await controller.requestNotificationAuthorization() }
                     }
                 }
@@ -713,24 +798,24 @@ private struct NotificationSettingsView: View {
 
     private var authorizationMessage: String {
         switch controller.isNotificationAuthorized {
-        case true: "要約完了と失敗を通知できます。"
-        case false: "システム設定でCapsStackの通知を許可してください。"
-        case nil: "許可状態を確認しています..."
+        case true: "Summary completions and failures can be delivered."
+        case false: "Allow CapsStack notifications in System Settings."
+        case nil: "Checking permission…"
         }
     }
 }
 
 private struct HotkeySettingsView: View {
     private let shortcuts: [(name: String, shortcut: String)] = [
-        ("履歴を開く", "⌘O"),
-        ("退席前メモを開く", "⇧⌘M"),
-        ("設定を開く", "⌘,"),
-        ("CapsStackを終了", "⌘Q")
+        ("Open History", "⌘O"),
+        ("Open away memo", "⇧⌘M"),
+        ("Open Settings", "⌘,"),
+        ("Quit CapsStack", "⌘Q")
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            SettingsHeader(title: "ホットキー", message: "アプリがアクティブなときに使えるショートカットです。")
+            SettingsHeader(title: "Keyboard shortcuts", message: "Shortcuts available while the app is active.")
 
             VStack(spacing: 0) {
                 ForEach(Array(shortcuts.enumerated()), id: \.offset) { index, shortcut in
@@ -765,40 +850,40 @@ private struct DataManagementSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             SettingsHeader(
-                title: "データ管理",
-                message: "履歴と退席前メモはこのMac上でのみ管理されます。"
+                title: "Data management",
+                message: "History and away memos are managed only on this Mac."
             )
 
             dataRow(
-                title: "履歴フォルダ",
+                title: "History folder",
                 subtitle: controller.historyDirectoryURL.path,
-                buttonTitle: "表示",
+                buttonTitle: "Show",
                 action: controller.revealHistoryFolder
             )
 
             dataRow(
-                title: "履歴をコピー",
-                subtitle: "フォルダの場所をクリップボードに保存します。",
-                buttonTitle: "コピー",
+                title: "Copy history path",
+                subtitle: "Copy the folder location to the clipboard.",
+                buttonTitle: "Copy",
                 action: copyPath
             )
 
             dataRow(
-                title: "すべての履歴を削除",
-                subtitle: "要約履歴と失敗時の再試行データを削除します。",
-                buttonTitle: "削除",
+                title: "Delete all history",
+                subtitle: "Delete summary history and retry data from failed runs.",
+                buttonTitle: "Delete",
                 destructive: true,
                 action: { showsClearConfirmation = true }
             )
 
             dataRow(
-                title: "退席前メモを削除",
-                subtitle: "保存中の次回メモを空にします。",
-                buttonTitle: "削除",
+                title: "Delete away memo",
+                subtitle: "Clear the memo saved for the next away interval.",
+                buttonTitle: "Delete",
                 destructive: true,
                 action: {
                     controller.clearQuickMemo()
-                    message = "退席前メモを削除しました"
+                    message = "Away memo deleted"
                 }
             )
 
@@ -813,7 +898,7 @@ private struct DataManagementSettingsView: View {
     private func copyPath() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(controller.historyDirectoryURL.path, forType: .string)
-        message = "パスをコピーしました"
+        message = "Path copied"
     }
 
     private func dataRow(
@@ -872,7 +957,7 @@ private struct AdvancedSummarizerSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            SettingsHeader(title: "詳細設定", message: "各CLIの実行ファイル、モデル、推論強度を指定できます。対応CLIはモデル一覧から選択できます。")
+            SettingsHeader(title: "Advanced", message: "Configure each CLI's executable, model, and reasoning level. Supported CLIs can load their model list.")
 
             ExecutableRow(
                 kind: .codex,
@@ -971,19 +1056,19 @@ private struct ExecutableRow: View {
                     }
                 } label: {
                     if controller.testingProvider == kind {
-                        Label("キャンセル", systemImage: "xmark")
+                        Label("Cancel", systemImage: "xmark")
                     } else {
-                        Text("テスト")
+                        Text("Test")
                     }
                 }
                 .disabled(controller.testingProvider != nil && controller.testingProvider != kind)
                 .accessibilityLabel(
                     controller.testingProvider == kind
-                        ? "\(kind.displayName)の接続テストをキャンセル"
-                        : "\(kind.displayName)の接続テスト"
+                        ? "Cancel \(kind.displayName) connection test"
+                        : "Test \(kind.displayName) connection"
                 )
 
-                Button(isExpanded ? "閉じる" : "詳細") {
+                Button(isExpanded ? "Close" : "Details") {
                     withAnimation(.easeOut(duration: 0.18)) { isExpanded.toggle() }
                 }
                 .buttonStyle(.borderless)
@@ -991,7 +1076,7 @@ private struct ExecutableRow: View {
 
             if isExpanded {
                 Divider()
-                TextField("実行ファイル（空欄なら自動検出）", text: $path)
+                TextField("Executable path (leave blank to detect automatically)", text: $path)
                     .textFieldStyle(.roundedBorder)
                 ModelSelectionControl(
                     kind: kind,
@@ -999,8 +1084,7 @@ private struct ExecutableRow: View {
                     controller: controller
                 )
                 if kind.supportsReasoningOverride {
-                    TextField("Reasoning: \(kind.reasoningHint)", text: $reasoning)
-                        .textFieldStyle(.roundedBorder)
+                    ReasoningSelectionControl(kind: kind, reasoning: $reasoning)
                 }
 
                 if let testMessage = controller.providerTestMessages[kind] {
@@ -1022,17 +1106,17 @@ private struct ExecutableRow: View {
     }
 
     private var statusText: String {
-        guard let status = controller.cliStatuses[kind] else { return "確認中..." }
+        guard let status = controller.cliStatuses[kind] else { return "Checking…" }
         if status.isInstalled {
-            return status.version ?? status.executablePath ?? "検出済み"
+            return status.version ?? status.executablePath ?? "Detected"
         }
-        return "未検出"
+        return "Not detected"
     }
 
     private func testMessageColor(_ message: String) -> Color {
         switch message {
-        case "成功": BrandPalette.BriefTheme.signal
-        case "確認中...", "キャンセルしました": .secondary
+        case "Success": BrandPalette.BriefTheme.signal
+        case "Checking…", "Cancelled": .secondary
         default: .red
         }
     }

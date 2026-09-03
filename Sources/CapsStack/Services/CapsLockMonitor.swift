@@ -242,7 +242,7 @@ final class CapsLockMonitor: @unchecked Sendable {
         let trusted = AXIsProcessTrusted()
         if !trusted {
             lock.lock()
-            storedSuppressionError = "アクセシビリティの許可が必要です。システム設定 > プライバシーとセキュリティ > アクセシビリティ で CapsStack を許可してください。"
+            storedSuppressionError = "Accessibility permission is required. Allow CapsStack in System Settings > Privacy & Security > Accessibility."
             suppressionActive = false
             lock.unlock()
             // Prompt system dialog (will show if we try to create tap, but also explicit)
@@ -265,7 +265,7 @@ final class CapsLockMonitor: @unchecked Sendable {
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
             lock.lock()
-            storedSuppressionError = "Caps Lock の監視を開始できませんでした。アクセシビリティ権限を確認してください。"
+            storedSuppressionError = "Could not start monitoring Caps Lock. Check your Accessibility permission."
             suppressionActive = false
             lock.unlock()
             return false
@@ -298,7 +298,7 @@ final class CapsLockMonitor: @unchecked Sendable {
             CFMachPortInvalidate(tap)
             lock.lock()
             eventTap = nil
-            storedSuppressionError = "イベントタップの登録に失敗しました。"
+            storedSuppressionError = "Could not register the keyboard event tap."
             suppressionActive = false
             lock.unlock()
             return false

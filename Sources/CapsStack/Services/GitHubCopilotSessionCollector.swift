@@ -29,7 +29,7 @@ final class GitHubCopilotSessionCollector: SessionCollector {
                 sessions: [],
                 issues: [CollectionIssue(
                     provider: provider,
-                    message: "GitHub Copilotのセッション保存先を読み取れません: \(rootDirectory.path)"
+                    message: "Could not read the GitHub Copilot session directory: \(rootDirectory.path)"
                 )]
             )
         }
@@ -46,7 +46,7 @@ final class GitHubCopilotSessionCollector: SessionCollector {
         if candidates.count > selected.count {
             issues.append(CollectionIssue(
                 provider: provider,
-                message: "対象セッションが多いため、最新の\(maxSessions)件だけを確認しました。"
+                message: "There are too many sessions to inspect; only the latest \(maxSessions) were checked."
             ))
         }
 

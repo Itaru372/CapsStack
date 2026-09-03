@@ -76,10 +76,10 @@ struct CapsStackCLIApplication {
             if json { return .success(try CLIFormatting.json(report)) }
             var lines = [
                 "CapsStack status",
-                "履歴: \(report.historyPath)",
-                "履歴ファイル: \(report.historyExists ? "あり" : "なし") / \(report.historyCount)件",
-                "クイックメモ: \(report.hasMemo ? "あり" : "なし")",
-                "エージェントCLI:"
+                "History: \(report.historyPath)",
+                "History file: \(report.historyExists ? "present" : "missing") / \(report.historyCount) entries",
+                "Away memo: \(report.hasMemo ? "present" : "none")",
+                "Agent CLIs:"
             ]
             lines.append(contentsOf: report.agents.map {
                 "  \($0.isAvailable ? "✓" : "-") \($0.executable)\($0.path.map { "  \($0)" } ?? "")"
@@ -89,7 +89,7 @@ struct CapsStackCLIApplication {
             let entries = try history.load()
             let selected = limit.map { Array(entries.prefix($0)) } ?? entries
             if json { return .success(try CLIFormatting.json(selected)) }
-            return .success(selected.isEmpty ? "履歴はまだありません。" : selected.map(CLIFormatting.listLine).joined(separator: "\n"))
+            return .success(selected.isEmpty ? "No history yet." : selected.map(CLIFormatting.listLine).joined(separator: "\n"))
         case .historyLatest(let mode):
             return try render(history.latest(), mode: mode)
         case .historyShow(let id, let mode):
@@ -117,7 +117,7 @@ struct CapsStackCLIApplication {
     private func renderMemo(_ value: String?, json: Bool, cleared: Bool = false) throws -> CLIResult {
         if json { return .success(try CLIFormatting.json(CLIMemoResponse(memo: value))) }
         if let value { return .success(value) }
-        return .success(cleared ? "クイックメモを消去しました。" : "クイックメモはありません。")
+        return .success(cleared ? "Away memo cleared." : "No away memo.")
     }
 
     private func diagnostic(_ error: Error) -> String {

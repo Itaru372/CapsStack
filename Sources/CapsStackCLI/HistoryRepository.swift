@@ -8,11 +8,11 @@ enum CLIHistoryError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unreadable(let url):
-            "CapsStackの履歴ファイルを読み取れません: \(url.path)"
+            "Could not read the CapsStack history file: \(url.path)"
         case .entryNotFound(let id):
-            "履歴が見つかりません: \(id.uuidString)"
+            "History entry not found: \(id.uuidString)"
         case .noEntries:
-            "履歴はまだありません。"
+            "No history yet."
         }
     }
 }
