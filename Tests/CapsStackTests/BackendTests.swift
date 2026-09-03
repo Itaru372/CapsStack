@@ -30,6 +30,17 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(resolver.logDirectory(for: .geminiCLI).path, "/custom/gemini-home/.gemini/tmp")
     }
 
+    func testCLIResolverDetectsSupportedDesktopAppsByBundleIdentifier() {
+        let resolver = CLIResolver(
+            homeDirectory: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+            environment: [:],
+            guiAppDetector: StubGUIAppDetector(installed: ["com.openai.codex"])
+        )
+
+        XCTAssertTrue(resolver.status(for: .codex, override: nil).isDesktopAppInstalled)
+        XCTAssertFalse(resolver.status(for: .opencode, override: nil).isDesktopAppInstalled)
+    }
+
     func testJSONLCollectorUsesTimeWindowAndKeepsMalformedLineIssue() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -84,6 +95,46 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(claudeResult.sessions[0].provider, .claudeCode)
         XCTAssertEqual(claudeResult.sessions[0].events.count, 1)
         XCTAssertEqual(claudeResult.sessions[0].events[0].content, "inside claude")
+    }
+
+    func testCodexClientClassificationCoversSupportedOrigins() {
+        XCTAssertEqual(AgentClientKind.codex(originator: "Codex Desktop", source: "vscode"), .desktop)
+        XCTAssertEqual(AgentClientKind.codex(originator: "codex_work_desktop", source: nil), .desktop)
+        XCTAssertEqual(AgentClientKind.codex(originator: "codex_exec", source: "exec"), .cli)
+        XCTAssertEqual(AgentClientKind.codex(originator: "codex_cli_rs", source: "vscode"), .cli)
+        XCTAssertEqual(
+            AgentClientKind.codex(originator: "codex-chrome-extension-sidepanel", source: nil),
+            .ideExtension
+        )
+        XCTAssertEqual(AgentClientKind.codex(originator: "codex_sdk_ts", source: nil), .sdk)
+        XCTAssertEqual(AgentClientKind.codex(originator: nil, source: "vscode"), .unknown)
+        XCTAssertEqual(AgentClientKind.codex(originator: "third-party-desktop", source: nil), .unknown)
+        XCTAssertEqual(AgentClientKind.codex(originator: "future-client", source: nil), .unknown)
+    }
+
+    func testCodexDesktopMetadataBeforeIntervalLabelsEventsInsideInterval() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-codex-desktop-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let lines = [
+            "{\"timestamp\":\"\(formatter.string(from: now.addingTimeInterval(-3_600)))\",\"type\":\"session_meta\",\"payload\":{\"id\":\"desktop-session\",\"originator\":\"Codex Desktop\",\"source\":\"vscode\"}}",
+            "{\"timestamp\":\"\(formatter.string(from: now))\",\"session_id\":\"desktop-session\",\"type\":\"assistant\",\"message\":\"desktop progress\"}"
+        ].joined(separator: "\n")
+        try Data(lines.utf8).write(to: root.appendingPathComponent("desktop-session.jsonl"))
+
+        let result = JSONLSessionCollector(provider: .codex, rootDirectory: root).collect(
+            interval: AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+        )
+
+        XCTAssertEqual(result.sessions.first?.effectiveClient, .desktop)
+        XCTAssertEqual(result.sessions.first?.sourceDisplayName, "Codex Desktop")
+        XCTAssertEqual(result.sessions.first?.events.map(\.content), ["desktop progress"])
     }
 
     func testCollectionProjectGroupingSeparatesDirectoriesAndGroupsSessions() throws {
@@ -152,7 +203,8 @@ final class BackendTests: XCTestCase {
                     kind: "assistant",
                     content: "進捗"
                 )],
-                wasTruncated: false
+                wasTruncated: false,
+                client: .desktop
             )],
             issues: []
         )
@@ -164,6 +216,94 @@ final class BackendTests: XCTestCase {
 
         XCTAssertTrue(prompt.contains("\"projectID\""))
         XCTAssertFalse(prompt.contains("\"id\": \"project-1\""))
+        XCTAssertTrue(prompt.contains("\"client\" : \"desktop\""))
+        XCTAssertTrue(prompt.contains("\"source\" : \"Codex Desktop\""))
+    }
+
+    func testLegacyCollectedSessionWithoutClientDecodesAsUnknown() throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let batch = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: [CollectedSessionArtifact(
+                id: "legacy",
+                provider: .codex,
+                workingDirectory: nil,
+                events: [CollectedEvent(timestamp: start, kind: "assistant", content: "done")],
+                wasTruncated: false
+            )],
+            issues: []
+        )
+        let encoded = try JSONEncoder().encode(batch)
+        XCTAssertFalse(String(decoding: encoded, as: UTF8.self).contains("\"client\""))
+
+        let decoded = try JSONDecoder().decode(CollectionBatch.self, from: encoded)
+        XCTAssertEqual(decoded.sessions.first?.effectiveClient, .unknown)
+        XCTAssertEqual(decoded.sessions.first?.sourceDisplayName, "Codex")
+    }
+
+    func testHistoryStorePreservesClientInPendingArtifact() throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-client-pending-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: directory) }
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let batch = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: [CollectedSessionArtifact(
+                id: "desktop",
+                provider: .codex,
+                workingDirectory: "/tmp/project",
+                events: [CollectedEvent(timestamp: start, kind: "assistant", content: "done")],
+                wasTruncated: false,
+                client: .desktop
+            )],
+            issues: []
+        )
+        let store = HistoryStore(directoryURL: directory)
+
+        let pending = try store.savePending(batch: batch)
+        let artifactID = try XCTUnwrap(pending.pendingArtifactID)
+
+        XCTAssertEqual(try store.loadPending(artifactID)?.sessions.first?.effectiveClient, .desktop)
+    }
+
+    func testUnknownFutureClientValueDecodesAsUnknown() throws {
+        let data = Data("\"future-gui\"".utf8)
+        XCTAssertEqual(try JSONDecoder().decode(AgentClientKind.self, from: data), .unknown)
+    }
+
+    func testCollectorFactoryPassesExecutableOverrideToOfficialExportCollector() {
+        let resolver = RecordingCollectorResolver()
+        _ = SessionCollectorFactory(resolver: resolver).makeCollector(
+            for: .opencode,
+            executableOverride: "/custom/bin/opencode"
+        )
+
+        XCTAssertEqual(resolver.requests.last?.kind, .opencode)
+        XCTAssertEqual(resolver.requests.last?.override, "/custom/bin/opencode")
+    }
+
+    func testOpenCodeDesktopRequiresCLIWhileCodexDesktopCanCollectLocalHistory() {
+        let openCode = CLIStatus(
+            kind: .opencode,
+            executablePath: nil,
+            version: nil,
+            logDirectory: "/tmp/opencode",
+            canReadLogs: true,
+            isDesktopAppInstalled: true
+        )
+        let codex = CLIStatus(
+            kind: .codex,
+            executablePath: nil,
+            version: nil,
+            logDirectory: "/tmp/codex",
+            canReadLogs: false,
+            isDesktopAppInstalled: true
+        )
+
+        XCTAssertFalse(openCode.canCollect)
+        XCTAssertTrue(openCode.collectionStatusDescription.contains("CLIが必要"))
+        XCTAssertTrue(codex.canCollect)
     }
 
     func testJSONLCollectorDoesNotMixSameSessionIDAcrossWorkingDirectories() throws {
@@ -423,6 +563,8 @@ final class BackendTests: XCTestCase {
 
         XCTAssertEqual(result.sessions.count, 1)
         XCTAssertEqual(result.sessions.first?.events.first?.content, "OpenCodeの進捗")
+        XCTAssertEqual(result.sessions.first?.effectiveClient, .shared)
+        XCTAssertEqual(result.sessions.first?.sourceDisplayName, "OpenCode 共有セッション")
         XCTAssertEqual(calls.first, ["session", "list", "--max-count", "2000", "--format", "json"])
         XCTAssertEqual(calls.last, ["export", "session-1"])
     }
@@ -691,7 +833,7 @@ final class BackendTests: XCTestCase {
         let exported = Data("{\"messages\":[{\"role\":\"assistant\",\"timestamp\":\(timestamp),\"content\":\"done\"}]}".utf8)
         let interval = AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
 
-        for provider in [CLIKind.kiloCode, .goose] {
+        for provider in [CLIKind.opencode, .kiloCode, .goose] {
             var calls: [[String]] = []
             let collector = OpenCodeSessionCollector(
                 provider: provider,
@@ -828,7 +970,8 @@ final class BackendTests: XCTestCase {
                     kind: "assistant",
                     content: String(repeating: "進捗", count: 10_000)
                 )],
-                wasTruncated: false
+                wasTruncated: false,
+                client: .desktop
             )],
             issues: [],
             quickMemo: "GUIで仕様を整理した"
@@ -843,6 +986,7 @@ final class BackendTests: XCTestCase {
         XCTAssertNil(provider.receivedBatches.first?.quickMemo)
         XCTAssertEqual(provider.receivedBatches.last?.quickMemo, "GUIで仕様を整理した")
         XCTAssertTrue(provider.receivedBatches.first?.sessions.first?.wasTruncated == true)
+        XCTAssertEqual(provider.receivedBatches.first?.sessions.first?.effectiveClient, .desktop)
         XCTAssertLessThan(
             provider.receivedBatches.first?.sessions.first?.events.first?.content.utf8.count ?? .max,
             16 * 1_024
@@ -1591,6 +1735,42 @@ private struct StaticCLIResolver: CLIResolving {
             version: "test",
             logDirectory: "/tmp",
             canReadLogs: true
+        )
+    }
+
+    func logDirectory(for kind: CLIKind) -> URL {
+        URL(fileURLWithPath: "/tmp", isDirectory: true)
+    }
+}
+
+private struct StubGUIAppDetector: GUIAppDetecting {
+    let installed: Set<String>
+
+    func isInstalled(bundleIdentifier: String) -> Bool {
+        installed.contains(bundleIdentifier)
+    }
+}
+
+private final class RecordingCollectorResolver: CLIResolving, @unchecked Sendable {
+    struct Request: Equatable {
+        let kind: CLIKind
+        let override: String?
+    }
+
+    private(set) var requests: [Request] = []
+
+    func executableURL(for kind: CLIKind, override: String?) -> URL? {
+        requests.append(Request(kind: kind, override: override))
+        return URL(fileURLWithPath: override ?? "/usr/bin/true")
+    }
+
+    func status(for kind: CLIKind, override: String?) -> CLIStatus {
+        CLIStatus(
+            kind: kind,
+            executablePath: nil,
+            version: nil,
+            logDirectory: "/tmp",
+            canReadLogs: false
         )
     }
 

@@ -32,6 +32,21 @@ enum CLIAgentKind: String, Codable, Sendable {
         case .geminiCLI: "Gemini CLI"
         }
     }
+
+    var collectionDisplayName: String {
+        switch self {
+        case .codex: "Codex"
+        case .claudeCode: "Claude Code"
+        case .opencode: "OpenCode"
+        case .pi: "Pi coding agent"
+        case .githubCopilot: "GitHub Copilot"
+        case .kiloCode: "Kilo Code"
+        case .goose: "Goose"
+        case .qwenCode: "Qwen Code"
+        case .continueCLI: "Continue"
+        case .geminiCLI: "Gemini"
+        }
+    }
 }
 
 struct CLIAwayInterval: Codable, Equatable, Sendable {

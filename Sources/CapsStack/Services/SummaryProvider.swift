@@ -29,7 +29,7 @@ enum SummaryPromptFactory {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let payload = try encoder.encode(ProjectGroupedPromptArtifact(
             interval: batch.interval,
-            projects: CollectionProjectGrouping.projects(in: batch),
+            projects: CollectionProjectGrouping.projects(in: batch).map(PromptProjectArtifact.init),
             issues: batch.issues,
             quickMemo: batch.quickMemo
         ))
@@ -43,7 +43,7 @@ enum SummaryPromptFactory {
         JSONにquickMemoフィールドがある場合は、それはユーザーが退席前に書いた補足メモです。セッションログと併せて考慮し、要約のoverviewやnextStepsに反映してください。
         入力のeventsはCaps LockがONだった区間だけに絞られています。projectsごとに、その中のsessionsをまとめているため、この階層を維持し、プロジェクトをまたいでセッションを混ぜないでください。
         次のキーをすべて持つJSONオブジェクトだけを返してください: overview, progress, currentState, decisions, blockers, nextSteps, projects。
-        projectsの出力各要素はprojectID、name、summary、sessionsを持ち、projectIDとnameは入力projectsの値を維持し、summaryはそのプロジェクト内のsessions/eventsを要約してください。出力sessionsの各要素はsessionID、source、summaryを持ち、入力sessionsのid/provider/eventsを対応づけてください。Markdownフェンスや説明文は出力しないでください。
+        projectsの出力各要素はprojectID、name、summary、sessionsを持ち、projectIDとnameは入力projectsの値を維持し、summaryはそのプロジェクト内のsessions/eventsを要約してください。出力sessionsの各要素はsessionID、source、summaryを持ち、sessionIDには入力sessionsのid、sourceには入力sessionsのsourceをそのまま使い、対応するeventsを要約してください。Markdownフェンスや説明文は出力しないでください。
 
         BEGIN_CAPSSTACK_ARTIFACT
         \(payloadText)
@@ -55,9 +55,43 @@ enum SummaryPromptFactory {
 
 private struct ProjectGroupedPromptArtifact: Encodable {
     let interval: AwayInterval
-    let projects: [CollectedProjectArtifact]
+    let projects: [PromptProjectArtifact]
     let issues: [CollectionIssue]
     let quickMemo: String?
+}
+
+private struct PromptProjectArtifact: Encodable {
+    let projectID: String
+    let name: String
+    let workingDirectory: String?
+    let sessions: [PromptSessionArtifact]
+
+    init(_ project: CollectedProjectArtifact) {
+        projectID = project.projectID
+        name = project.name
+        workingDirectory = project.workingDirectory
+        sessions = project.sessions.map(PromptSessionArtifact.init)
+    }
+}
+
+private struct PromptSessionArtifact: Encodable {
+    let id: String
+    let provider: CLIKind
+    let client: AgentClientKind
+    let source: String
+    let workingDirectory: String?
+    let events: [CollectedEvent]
+    let wasTruncated: Bool
+
+    init(_ session: CollectedSessionArtifact) {
+        id = session.id
+        provider = session.provider
+        client = session.effectiveClient
+        source = session.sourceDisplayName
+        workingDirectory = session.workingDirectory
+        events = session.events
+        wasTruncated = session.wasTruncated
+    }
 }
 
 final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {

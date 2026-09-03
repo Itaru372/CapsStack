@@ -65,7 +65,8 @@ final class GitHubCopilotSessionCollector: SessionCollector {
                     provider: provider,
                     workingDirectory: session.workingDirectory ?? workspace,
                     events: session.events,
-                    wasTruncated: session.wasTruncated
+                    wasTruncated: session.wasTruncated,
+                    client: .cli
                 )
             })
             issues.append(contentsOf: result.issues)

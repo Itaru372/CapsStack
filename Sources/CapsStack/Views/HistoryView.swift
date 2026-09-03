@@ -475,7 +475,7 @@ private struct ReturnBriefView: View {
                 BriefSection(
                     title: "収集時の注意",
                     symbolName: "info",
-                    items: entry.collectionIssues.map { "\($0.provider.displayName): \($0.message)" },
+                    items: entry.collectionIssues.map { "\($0.provider.collectionDisplayName): \($0.message)" },
                     checklist: false
                 )
             }

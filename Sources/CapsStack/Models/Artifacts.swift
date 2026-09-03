@@ -13,15 +13,80 @@ struct CollectedEvent: Codable, Equatable, Sendable {
     let content: String
 }
 
+enum AgentClientKind: String, Codable, Equatable, Sendable {
+    case cli
+    case desktop
+    case ideExtension
+    case sdk
+    case shared
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self = Self(rawValue: (try? container.decode(String.self)) ?? "") ?? .unknown
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    static func codex(originator: String?, source: String?) -> AgentClientKind {
+        let origin = originator?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        let source = source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+
+        if origin == "codex desktop" || origin == "codex_work_desktop" { return .desktop }
+        if origin.hasPrefix("codex_sdk") { return .sdk }
+        if origin.hasPrefix("codex"),
+           origin.contains("extension") || origin.contains("sidepanel") || origin.contains("vscode") {
+            return .ideExtension
+        }
+        let cliOrigins: Set<String> = ["codex", "codex_cli", "codex_cli_rs", "codex-tui", "codex_exec"]
+        if cliOrigins.contains(origin) || origin.hasPrefix("codex_cli_") { return .cli }
+        if source == "cli" || source == "exec" || source == "codex_rollout" { return .cli }
+        return .unknown
+    }
+
+    func sourceDisplayName(for provider: CLIKind) -> String {
+        switch self {
+        case .cli: "\(provider.collectionDisplayName) CLI"
+        case .desktop: "\(provider.collectionDisplayName) Desktop"
+        case .ideExtension: "\(provider.collectionDisplayName) IDE"
+        case .sdk: "\(provider.collectionDisplayName) SDK"
+        case .shared: "\(provider.collectionDisplayName) 共有セッション"
+        case .unknown: provider.collectionDisplayName
+        }
+    }
+}
+
 struct CollectedSessionArtifact: Codable, Equatable, Identifiable, Sendable {
     let id: String
     let provider: CLIKind
     let workingDirectory: String?
     let events: [CollectedEvent]
     let wasTruncated: Bool
+    let client: AgentClientKind?
+
+    init(
+        id: String,
+        provider: CLIKind,
+        workingDirectory: String?,
+        events: [CollectedEvent],
+        wasTruncated: Bool,
+        client: AgentClientKind? = nil
+    ) {
+        self.id = id
+        self.provider = provider
+        self.workingDirectory = workingDirectory
+        self.events = events
+        self.wasTruncated = wasTruncated
+        self.client = client
+    }
 
     var firstEventAt: Date? { events.first?.timestamp }
     var lastEventAt: Date? { events.last?.timestamp }
+    var effectiveClient: AgentClientKind { client ?? .unknown }
+    var sourceDisplayName: String { effectiveClient.sourceDisplayName(for: provider) }
 }
 
 /// A stable, presentation-ready project grouping derived from the source session's working

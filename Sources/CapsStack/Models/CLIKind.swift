@@ -29,6 +29,40 @@ enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Agent-facing name used when selecting and reporting collection sources. Collection can
+    /// span terminal, desktop, and IDE clients, while `displayName` remains the exact CLI name
+    /// used by the summarizer settings and errors.
+    var collectionDisplayName: String {
+        switch self {
+        case .codex: "Codex"
+        case .claudeCode: "Claude Code"
+        case .opencode: "OpenCode"
+        case .pi: "Pi coding agent"
+        case .githubCopilot: "GitHub Copilot"
+        case .kiloCode: "Kilo Code"
+        case .goose: "Goose"
+        case .qwenCode: "Qwen Code"
+        case .continueCLI: "Continue"
+        case .geminiCLI: "Gemini"
+        }
+    }
+
+    var collectionClientDescription: String {
+        switch self {
+        case .codex: "CLI / Desktop / IDE"
+        case .opencode: "CLI / Desktop / IDE（公式export経由）"
+        default: "CLI"
+        }
+    }
+
+    var desktopBundleIdentifier: String? {
+        switch self {
+        case .codex: "com.openai.codex"
+        case .opencode: "ai.opencode.desktop"
+        default: nil
+        }
+    }
+
     var executableName: String {
         switch self {
         case .codex: "codex"
@@ -129,6 +163,42 @@ enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
         default: false
         }
     }
+
+    /// Whether this CLI exposes a documented, non-interactive model listing command that
+    /// CapsStack can invoke without starting a session. CLIs without such a boundary keep the
+    /// existing free-form model override so we do not invent or stale-cache a catalog for them.
+    var supportsModelListing: Bool {
+        switch self {
+        case .codex, .opencode, .pi, .kiloCode:
+            true
+        default:
+            false
+        }
+    }
+
+    static var modelListingCases: [CLIKind] {
+        allCases.filter(\.supportsModelListing)
+    }
+}
+
+/// A model exposed by an installed CLI. The ID is the value passed back to that CLI; the optional
+/// display name is only presentation metadata and is intentionally not persisted.
+struct CLIModel: Equatable, Hashable, Identifiable, Sendable {
+    let id: String
+    let displayName: String
+
+    init(id: String, displayName: String? = nil) {
+        self.id = id
+        let trimmedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.displayName = trimmedName.isEmpty ? id : trimmedName
+    }
+}
+
+enum CLIModelFetchState: Equatable, Sendable {
+    case idle
+    case loading
+    case loaded
+    case failed
 }
 
 struct CLIStatus: Equatable, Sendable {
@@ -137,6 +207,56 @@ struct CLIStatus: Equatable, Sendable {
     let version: String?
     let logDirectory: String
     let canReadLogs: Bool
+    let isDesktopAppInstalled: Bool
+
+    init(
+        kind: CLIKind,
+        executablePath: String?,
+        version: String?,
+        logDirectory: String,
+        canReadLogs: Bool,
+        isDesktopAppInstalled: Bool = false
+    ) {
+        self.kind = kind
+        self.executablePath = executablePath
+        self.version = version
+        self.logDirectory = logDirectory
+        self.canReadLogs = canReadLogs
+        self.isDesktopAppInstalled = isDesktopAppInstalled
+    }
 
     var isInstalled: Bool { executablePath != nil }
+
+    /// OpenCode Desktop still needs its official CLI export command. Codex Desktop writes the
+    /// same readable local session archive as the other Codex clients.
+    var canCollect: Bool {
+        switch kind {
+        case .codex:
+            isInstalled || canReadLogs || isDesktopAppInstalled
+        case .opencode:
+            isInstalled
+        default:
+            isInstalled || canReadLogs
+        }
+    }
+
+    var collectionStatusDescription: String {
+        if kind == .opencode, isDesktopAppInstalled, !isInstalled {
+            return "Desktopを検出 ・ 収集にはOpenCode CLIが必要"
+        }
+
+        var detected: [String] = []
+        if isInstalled { detected.append("CLI") }
+        if isDesktopAppInstalled { detected.append("Desktop") }
+        if canReadLogs { detected.append("履歴") }
+        let detectedText = detected.isEmpty ? "未検出" : detected.joined(separator: " / ") + "を検出"
+
+        if kind == .opencode, isInstalled {
+            return "\(kind.collectionClientDescription) ・ \(detectedText)"
+        }
+        if kind == .codex {
+            return "\(kind.collectionClientDescription) ・ \(detectedText)"
+        }
+        return detectedText
+    }
 }

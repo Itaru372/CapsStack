@@ -229,7 +229,8 @@ struct SummaryOrchestrator {
                         kind: "chunk-summary",
                         content: boundedContent
                     )],
-                    wasTruncated: boundedContent.utf8.count < payload.content.utf8.count
+                    wasTruncated: boundedContent.utf8.count < payload.content.utf8.count,
+                    client: originalClient(for: payload.sessions, in: batch)
                 )
             }
         }
@@ -352,7 +353,8 @@ struct SummaryOrchestrator {
                 provider: session.provider,
                 workingDirectory: session.workingDirectory,
                 events: candidateEvents,
-                wasTruncated: session.wasTruncated
+                wasTruncated: session.wasTruncated,
+                client: session.client
             )
             if !currentEvents.isEmpty,
                encodedSize(of: CollectionBatch(interval: interval, sessions: [candidate], issues: [])) > maxInputBytes {
@@ -388,7 +390,8 @@ struct SummaryOrchestrator {
             provider: session.provider,
             workingDirectory: session.workingDirectory.map { truncatedUTF8($0, limit: 4_096) },
             events: boundedEvents,
-            wasTruncated: session.wasTruncated || didTruncateContent
+            wasTruncated: session.wasTruncated || didTruncateContent,
+            client: session.client
         )
     }
 
@@ -463,5 +466,19 @@ struct SummaryOrchestrator {
             }
         }
         return nil
+    }
+
+    private func originalClient(
+        for summaries: [SessionSummary],
+        in batch: CollectionBatch
+    ) -> AgentClientKind? {
+        let clients = Set(summaries.map { summary in
+            batch.sessions.first(where: { artifact in
+                summary.sessionID == artifact.id
+                    || summary.sessionID.hasPrefix("\(artifact.id)#")
+                    || artifact.id.hasPrefix("\(summary.sessionID)#")
+            })?.effectiveClient ?? .unknown
+        })
+        return clients.count == 1 ? clients.first : nil
     }
 }

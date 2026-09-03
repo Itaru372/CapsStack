@@ -109,7 +109,7 @@ struct SetupView: View {
     private var collectorsSection: some View {
         SetupSection(number: 1, title: "作業履歴の収集元") {
             if detectedCollectors.isEmpty {
-                unavailableMessage("対応CLIや読み取り可能な履歴はまだ見つかりません。退席前メモだけでも利用できます。")
+                unavailableMessage("対応エージェントや読み取り可能な履歴はまだ見つかりません。退席前メモだけでも利用できます。")
             } else {
                 VStack(spacing: 8) {
                     ForEach(detectedCollectors) { kind in
@@ -117,18 +117,19 @@ struct SetupView: View {
                             HStack(spacing: 12) {
                                 AgentArtwork(kind: kind, size: 28)
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(kind.displayName)
+                                    Text(kind.collectionDisplayName)
                                         .font(.headline)
                                     Text(collectorStatus(for: kind))
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(collectorStatusColor(for: kind))
                                         .lineLimit(1)
                                         .truncationMode(.middle)
                                 }
                             }
                         }
                         .toggleStyle(.switch)
-                        .accessibilityLabel("\(kind.displayName)の収集")
+                        .disabled(cannotEnableCollector(kind))
+                        .accessibilityLabel("\(kind.collectionDisplayName)の収集")
                         .accessibilityValue(isCollectorEnabled(kind) ? "オン" : "オフ")
                         .padding(.horizontal, 14)
                         .frame(height: 64)
@@ -254,7 +255,9 @@ struct SetupView: View {
 
     private var detectedCollectors: [CLIKind] {
         CLIKind.collectorCases.filter { kind in
-            controller.cliStatuses[kind].map { $0.isInstalled || $0.canReadLogs } == true
+            controller.cliStatuses[kind].map {
+                $0.isInstalled || $0.canReadLogs || $0.isDesktopAppInstalled
+            } == true
         }
     }
 
@@ -312,9 +315,17 @@ struct SetupView: View {
 
     private func collectorStatus(for kind: CLIKind) -> String {
         guard let status = controller.cliStatuses[kind] else { return "確認中…" }
-        if status.isInstalled && status.canReadLogs { return "CLIと履歴を検出" }
-        if status.isInstalled { return "CLIを検出" }
-        return "保存済みの履歴を検出"
+        return status.collectionStatusDescription
+    }
+
+    private func cannotEnableCollector(_ kind: CLIKind) -> Bool {
+        guard !isCollectorEnabled(kind), let status = controller.cliStatuses[kind] else { return false }
+        return !status.canCollect
+    }
+
+    private func collectorStatusColor(for kind: CLIKind) -> Color {
+        guard let status = controller.cliStatuses[kind], !status.canCollect else { return .secondary }
+        return .orange
     }
 
     private func move(to step: SetupStep) {
@@ -401,7 +412,7 @@ private enum SetupStep: Int, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .collectors: "検出したCLIを自動で選択"
+        case .collectors: "検出したエージェントを自動で選択"
         case .summarizer: "普段使うCLIでブリーフを生成"
         case .telemetry: "匿名テレメトリは初期状態でOFF"
         case .usage: "ONで退席、OFFで復帰"

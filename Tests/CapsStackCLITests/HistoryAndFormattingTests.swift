@@ -42,6 +42,8 @@ final class HistoryAndFormattingTests: XCTestCase {
         XCTAssertTrue(markdown.contains("## 重要な判断"))
         XCTAssertTrue(markdown.contains("## 問題・確認待ち"))
         XCTAssertTrue(markdown.contains("## 次の予定"))
+        XCTAssertTrue(markdown.contains("**収集元**: Codex"))
+        XCTAssertTrue(markdown.contains("**要約CLI**: Codex CLI"))
         XCTAssertTrue(markdown.contains("**Codex — s1**"))
         XCTAssertTrue(markdown.contains("退席前メモ"))
     }

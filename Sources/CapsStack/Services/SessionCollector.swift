@@ -14,19 +14,19 @@ struct SessionCollectorFactory {
         self.resolver = resolver
     }
 
-    func makeCollector(for kind: CLIKind) -> SessionCollector {
+    func makeCollector(for kind: CLIKind, executableOverride: String? = nil) -> SessionCollector {
         let rootDirectory = resolver.logDirectory(for: kind)
         switch kind {
         case .opencode:
             return OpenCodeSessionCollector(
                 rootDirectory: rootDirectory,
-                executableURL: resolver.executableURL(for: kind, override: nil)
+                executableURL: resolver.executableURL(for: kind, override: executableOverride)
             )
         case .kiloCode:
             return OpenCodeSessionCollector(
                 provider: kind,
                 rootDirectory: rootDirectory,
-                executableURL: resolver.executableURL(for: kind, override: nil),
+                executableURL: resolver.executableURL(for: kind, override: executableOverride),
                 // Kilo defaults to the current project. The collector runs from the data
                 // directory, so request every local project explicitly.
                 listArguments: ["session", "list", "--all", "--format", "json"],
@@ -37,7 +37,7 @@ struct SessionCollectorFactory {
             return OpenCodeSessionCollector(
                 provider: kind,
                 rootDirectory: rootDirectory,
-                executableURL: resolver.executableURL(for: kind, override: nil),
+                executableURL: resolver.executableURL(for: kind, override: executableOverride),
                 listArguments: ["session", "list", "--format", "json"],
                 exportArguments: {
                     ["session", "export", "--session-id", $0, "--format", "json"]
@@ -59,13 +59,26 @@ struct SessionCollectorFactory {
         }
     }
 
-    func makeCollectors(for kinds: Set<CLIKind>) -> [SessionCollector] {
-        kinds.sorted { $0.rawValue < $1.rawValue }.map(makeCollector(for:))
+    func makeCollectors(
+        for kinds: Set<CLIKind>,
+        executableOverrides: [CLIKind: String] = [:]
+    ) -> [SessionCollector] {
+        kinds.sorted { $0.rawValue < $1.rawValue }.map {
+            makeCollector(for: $0, executableOverride: executableOverrides[$0])
+        }
     }
 
     /// Convenience entry point for callers that do not need to retain a multi-collector.
-    func collect(interval: AwayInterval, sources: Set<CLIKind>) -> CollectionBatch {
-        MultiSessionCollector(factory: self).collect(interval: interval, sources: sources)
+    func collect(
+        interval: AwayInterval,
+        sources: Set<CLIKind>,
+        executableOverrides: [CLIKind: String] = [:]
+    ) -> CollectionBatch {
+        MultiSessionCollector(factory: self).collect(
+            interval: interval,
+            sources: sources,
+            executableOverrides: executableOverrides
+        )
     }
 }
 
@@ -78,11 +91,15 @@ final class MultiSessionCollector: @unchecked Sendable {
         self.factory = factory
     }
 
-    func collect(interval: AwayInterval, sources: Set<CLIKind>) -> CollectionBatch {
+    func collect(
+        interval: AwayInterval,
+        sources: Set<CLIKind>,
+        executableOverrides: [CLIKind: String] = [:]
+    ) -> CollectionBatch {
         var sessions: [CollectedSessionArtifact] = []
         var issues: [CollectionIssue] = []
 
-        for collector in factory.makeCollectors(for: sources) {
+        for collector in factory.makeCollectors(for: sources, executableOverrides: executableOverrides) {
             let result = collector.collect(interval: interval)
             sessions.append(contentsOf: result.sessions)
             issues.append(contentsOf: result.issues)

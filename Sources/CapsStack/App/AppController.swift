@@ -17,6 +17,9 @@ final class AppController: ObservableObject {
     @Published private(set) var activeSessionCount = 0
     @Published private(set) var history: [HistoryEntry] = []
     @Published private(set) var cliStatuses: [CLIKind: CLIStatus] = [:]
+    @Published private(set) var cliModels: [CLIKind: [CLIModel]] = [:]
+    @Published private(set) var cliModelFetchStates: [CLIKind: CLIModelFetchState] = [:]
+    @Published private(set) var cliModelErrors: [CLIKind: String] = [:]
     @Published private(set) var providerTestMessages: [CLIKind: String] = [:]
     @Published private(set) var testingProvider: CLIKind?
     @Published private(set) var lastError: String?
@@ -33,6 +36,7 @@ final class AppController: ObservableObject {
     private let collector: MultiSessionCollector
     private let resolver: CLIResolving
     private let runner: ProcessRunning
+    private let modelListing: CLIModelListing
     private let summarizer: SummaryOrchestrator
     private let historyStore: HistoryStore
     private let notifications: NotificationServicing
@@ -47,6 +51,7 @@ final class AppController: ObservableObject {
     private var providerTestGeneration: UInt = 0
     private var workflowGeneration: UInt = 0
     private var isRefreshingCLIStatuses = false
+    private var refreshingModelKinds: Set<CLIKind> = []
     private var backgroundActivity: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
     private let showsInMemoryDemoData: Bool
@@ -57,6 +62,7 @@ final class AppController: ObservableObject {
         monitor: CapsLockMonitor = CapsLockMonitor(),
         resolver: CLIResolving = CLIResolver(),
         runner: ProcessRunning = ProcessRunner(),
+        modelListing: CLIModelListing? = nil,
         historyStore: HistoryStore = HistoryStore(),
         notifications: NotificationServicing = NotificationService(),
         telemetry: TelemetryClient? = nil,
@@ -70,6 +76,7 @@ final class AppController: ObservableObject {
         self.monitor = monitor
         self.resolver = resolver
         self.runner = runner
+        self.modelListing = modelListing ?? CLIModelCatalogService(resolver: resolver, runner: runner)
         self.collector = MultiSessionCollector(factory: SessionCollectorFactory(resolver: resolver))
         self.summarizer = SummaryOrchestrator(resolver: resolver, runner: runner)
         self.historyStore = historyStore
@@ -353,13 +360,59 @@ final class AppController: ObservableObject {
                         executablePath: status.executablePath,
                         version: output?.isEmpty == false ? output : nil,
                         logDirectory: status.logDirectory,
-                        canReadLogs: status.canReadLogs
+                        canReadLogs: status.canReadLogs,
+                        isDesktopAppInstalled: status.isDesktopAppInstalled
                     )
                 }
             }
             refreshed[kind] = status
         }
         cliStatuses = refreshed
+    }
+
+    func models(for kind: CLIKind) -> [CLIModel] {
+        cliModels[kind] ?? []
+    }
+
+    func modelFetchState(for kind: CLIKind) -> CLIModelFetchState {
+        cliModelFetchStates[kind] ?? .idle
+    }
+
+    /// Refreshes one CLI's account/configuration-aware model catalog. This is intentionally
+    /// separate from `refreshCLIStatuses()` because model listing may contact a provider and
+    /// should not delay app startup or a simple version probe.
+    func refreshCLIModels(for kind: CLIKind) async {
+        guard kind.supportsModelListing else { return }
+        guard !refreshingModelKinds.contains(kind) else { return }
+
+        refreshingModelKinds.insert(kind)
+        cliModelFetchStates[kind] = .loading
+        cliModelErrors.removeValue(forKey: kind)
+        defer { refreshingModelKinds.remove(kind) }
+
+        let preferences = SummarizerPreferences(defaults: defaults)
+        do {
+            let models = try await modelListing.models(
+                for: kind,
+                executableOverride: preferences.executableOverride(for: kind)
+            )
+            guard !Task.isCancelled else { return }
+            cliModels[kind] = models
+            cliModelFetchStates[kind] = .loaded
+        } catch is CancellationError {
+            // Cancellation is a normal part of closing settings or changing an executable path;
+            // do not replace a useful existing catalog with an error state.
+        } catch {
+            guard !Task.isCancelled else { return }
+            cliModelFetchStates[kind] = .failed
+            cliModelErrors[kind] = error.localizedDescription
+        }
+    }
+
+    func refreshAvailableModels() async {
+        for kind in CLIKind.modelListingCases {
+            await refreshCLIModels(for: kind)
+        }
     }
 
     func startProviderTest(_ kind: CLIKind) {
@@ -775,8 +828,13 @@ final class AppController: ObservableObject {
 
     private func collect(interval: AwayInterval, sources: Set<CLIKind>) async -> CollectionBatch {
         let collector = self.collector
+        let executableOverrides = SummarizerPreferences(defaults: defaults).executableOverrides
         return await Task.detached(priority: .utility) {
-            collector.collect(interval: interval, sources: sources)
+            collector.collect(
+                interval: interval,
+                sources: sources,
+                executableOverrides: executableOverrides
+            )
         }.value
     }
 

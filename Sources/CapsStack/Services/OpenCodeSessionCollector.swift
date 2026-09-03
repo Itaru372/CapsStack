@@ -47,9 +47,9 @@ final class OpenCodeSessionCollector: SessionCollector {
         self.listArguments = listArguments
             ?? ["session", "list", "--max-count", String(max(1, maxSessions)), "--format", "json"]
         self.exportArguments = exportArguments ?? { ["export", $0] }
-        // OpenCode has a historical file fallback. Kilo and Goose are DB-backed and must stay
-        // behind their documented CLI list/export boundaries unless a caller explicitly opts in.
-        self.allowsFileFallback = allowsFileFallback ?? (provider == .opencode)
+        // DB-backed providers stay behind their documented CLI list/export boundaries. A caller
+        // may explicitly enable file fallback only for a fixture or a known legacy archive.
+        self.allowsFileFallback = allowsFileFallback ?? false
     }
 
     func collect(interval: AwayInterval) -> CollectionResult {
@@ -144,7 +144,8 @@ final class OpenCodeSessionCollector: SessionCollector {
                 events: events.map {
                     CollectedEvent(timestamp: $0.timestamp, kind: $0.kind, content: $0.content)
                 },
-                wasTruncated: false
+                wasTruncated: false,
+                client: provider == .opencode ? .shared : .cli
             ))
         }
 

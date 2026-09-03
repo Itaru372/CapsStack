@@ -126,7 +126,8 @@ final class JSONLSessionCollector: SessionCollector {
                     var session = grouped[groupingKey] ?? MutableSession(
                         id: sessionID,
                         workingDirectory: record.workingDirectory,
-                        wasTruncated: false
+                        wasTruncated: false,
+                        client: read.client
                     )
                     session.events.append(CollectedEvent(
                         timestamp: record.timestamp,
@@ -137,6 +138,9 @@ final class JSONLSessionCollector: SessionCollector {
                         session.workingDirectory = record.workingDirectory
                     }
                     session.wasTruncated = session.wasTruncated || read.wasTruncated
+                    if session.client == nil || session.client == .unknown {
+                        session.client = read.client
+                    }
                     grouped[groupingKey] = session
                 }
                 for object in records.objects {
@@ -149,6 +153,7 @@ final class JSONLSessionCollector: SessionCollector {
                         record,
                         file: file,
                         wasTruncated: read.wasTruncated,
+                        client: read.client,
                         grouped: &grouped,
                         groupingKeysBySessionID: &groupingKeysBySessionID
                     )
@@ -181,7 +186,8 @@ final class JSONLSessionCollector: SessionCollector {
                 provider: provider,
                 workingDirectory: mutable.workingDirectory,
                 events: mutable.events,
-                wasTruncated: mutable.wasTruncated
+                wasTruncated: mutable.wasTruncated,
+                client: mutable.client
             )
         }.filter { !$0.events.isEmpty }
             .sorted { ($0.firstEventAt ?? .distantPast) < ($1.firstEventAt ?? .distantPast) }
@@ -246,11 +252,36 @@ final class JSONLSessionCollector: SessionCollector {
         try handle.seek(toOffset: startOffset)
         let data = try handle.read(upToCount: maxFileBytes + 1) ?? Data()
         let wasTruncated = startOffset > 0 || data.count > maxFileBytes
+        let prefixData: Data
+        if startOffset == 0 {
+            prefixData = Data(data.prefix(64 * 1_024))
+        } else {
+            try handle.seek(toOffset: 0)
+            prefixData = try handle.read(upToCount: 64 * 1_024) ?? Data()
+        }
         return ReadFile(
             data: Data(data.prefix(maxFileBytes)),
             modificationDate: modificationDate,
-            wasTruncated: wasTruncated
+            wasTruncated: wasTruncated,
+            client: clientKind(fromPrefix: prefixData)
         )
+    }
+
+    private func clientKind(fromPrefix data: Data) -> AgentClientKind? {
+        guard provider == .codex else { return .cli }
+        for line in data.split(separator: 10, omittingEmptySubsequences: true) {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)),
+                  let dictionary = object as? [String: Any],
+                  (dictionary["type"] as? String) == "session_meta",
+                  let payload = dictionary["payload"] as? [String: Any] else {
+                continue
+            }
+            return AgentClientKind.codex(
+                originator: payload["originator"] as? String,
+                source: payload["source"] as? String
+            )
+        }
+        return .unknown
     }
 
     private func parse(line: Data, fallbackDate: Date, interval: AwayInterval) -> ParsedRecord? {
@@ -313,6 +344,7 @@ final class JSONLSessionCollector: SessionCollector {
         _ record: ParsedRecord,
         file: URL,
         wasTruncated: Bool,
+        client: AgentClientKind?,
         grouped: inout [String: MutableSession],
         groupingKeysBySessionID: inout [String: Set<String>]
     ) {
@@ -331,7 +363,8 @@ final class JSONLSessionCollector: SessionCollector {
         var session = grouped[groupingKey] ?? MutableSession(
             id: sessionID,
             workingDirectory: record.workingDirectory,
-            wasTruncated: false
+            wasTruncated: false,
+            client: client
         )
         session.events.append(CollectedEvent(
             timestamp: record.timestamp,
@@ -340,6 +373,7 @@ final class JSONLSessionCollector: SessionCollector {
         ))
         if session.workingDirectory == nil { session.workingDirectory = record.workingDirectory }
         session.wasTruncated = session.wasTruncated || wasTruncated
+        if session.client == nil || session.client == .unknown { session.client = client }
         grouped[groupingKey] = session
     }
 
@@ -435,6 +469,7 @@ private struct ReadFile {
     let data: Data
     let modificationDate: Date
     let wasTruncated: Bool
+    let client: AgentClientKind?
 }
 
 private struct ParsedRecord {
@@ -450,4 +485,5 @@ private struct MutableSession {
     var workingDirectory: String?
     var events: [CollectedEvent] = []
     var wasTruncated: Bool
+    var client: AgentClientKind?
 }

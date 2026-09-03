@@ -49,7 +49,7 @@ enum CLIInitialPreferences {
                 // A CLI may be absent while its local archive is still useful (for example after
                 // an uninstall). Conversely, an installed CLI with no archive yet is worth
                 // enabling so the next run is captured without another settings visit.
-                let enabled = status?.isInstalled == true || status?.canReadLogs == true
+                let enabled = status?.canCollect == true
                 defaults.set(enabled, forKey: key)
             }
         }
@@ -93,7 +93,7 @@ enum CLIInitialPreferences {
     ) {
         for (kind, key) in collectorKeys {
             guard defaults.bool(forKey: key), let status = statuses[kind] else { continue }
-            guard status.isInstalled || status.canReadLogs else {
+            guard status.canCollect else {
                 defaults.set(false, forKey: key)
                 continue
             }
@@ -138,15 +138,18 @@ struct CLIResolver: CLIResolving, @unchecked Sendable {
     private let fileManager: FileManager
     private let homeDirectory: URL
     private let environment: [String: String]
+    private let guiAppDetector: GUIAppDetecting
 
     init(
         fileManager: FileManager = .default,
         homeDirectory: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        guiAppDetector: GUIAppDetecting = GUIAppDetector()
     ) {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory
         self.environment = environment
+        self.guiAppDetector = guiAppDetector
     }
 
     func executableURL(for kind: CLIKind, override: String? = nil) -> URL? {
@@ -201,7 +204,8 @@ struct CLIResolver: CLIResolving, @unchecked Sendable {
             executablePath: path?.path,
             version: nil,
             logDirectory: logURL.path,
-            canReadLogs: canRead
+            canReadLogs: canRead,
+            isDesktopAppInstalled: kind.desktopBundleIdentifier.map(guiAppDetector.isInstalled) ?? false
         )
     }
 

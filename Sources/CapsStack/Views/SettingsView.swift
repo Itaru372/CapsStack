@@ -227,7 +227,7 @@ private struct CollectorSettingsView: View {
         VStack(alignment: .leading, spacing: 22) {
             SettingsHeader(
                 title: "収集元",
-                message: "退席中にアクティビティを収集するツールを選択します。"
+                message: "退席中に収集するエージェントを選択します。対応するCLI・Desktop・IDEの履歴をまとめて扱います。"
             )
 
             VStack(spacing: 10) {
@@ -263,7 +263,9 @@ private struct CollectorSettingsView: View {
 
     private var primaryCollectorKinds: [CLIKind] {
         CLIKind.collectorCases.filter { kind in
-            isEnabled(kind) || controller.cliStatuses[kind].map { $0.isInstalled || $0.canReadLogs } == true
+            isEnabled(kind) || controller.cliStatuses[kind].map {
+                $0.isInstalled || $0.canReadLogs || $0.isDesktopAppInstalled
+            } == true
         }
     }
 
@@ -308,7 +310,8 @@ private struct CollectorSettingsView: View {
 
     private func matches(_ kind: CLIKind) -> Bool {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || kind.displayName.localizedCaseInsensitiveContains(searchText)
+            || kind.collectionDisplayName.localizedCaseInsensitiveContains(searchText)
+            || kind.collectionClientDescription.localizedCaseInsensitiveContains(searchText)
     }
 
     @ViewBuilder
@@ -319,18 +322,19 @@ private struct CollectorSettingsView: View {
                     AgentArtwork(kind: kind)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(kind.displayName)
+                        Text(kind.collectionDisplayName)
                             .font(.headline)
                         statusText(for: kind)
                             .font(.caption.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(collectorStatusColor(for: kind))
                     }
 
                     Spacer(minLength: 12)
                 }
             }
             .toggleStyle(.switch)
-            .accessibilityLabel("\(kind.displayName)の収集")
+            .disabled(cannotEnable(kind, isOn: isOn))
+            .accessibilityLabel("\(kind.collectionDisplayName)の収集")
             .accessibilityValue(isOn.wrappedValue ? "オン" : "オフ")
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -343,10 +347,20 @@ private struct CollectorSettingsView: View {
     @ViewBuilder
     private func statusText(for kind: CLIKind) -> some View {
         if let status = controller.cliStatuses[kind] {
-            Text(status.canReadLogs ? "\(status.logDirectory) ・ 接続中" : "\(status.logDirectory) ・ 読み取れません")
+            Text(status.collectionStatusDescription)
         } else {
             Text("確認中...")
         }
+    }
+
+    private func cannotEnable(_ kind: CLIKind, isOn: Binding<Bool>) -> Bool {
+        guard !isOn.wrappedValue, let status = controller.cliStatuses[kind] else { return false }
+        return !status.canCollect
+    }
+
+    private func collectorStatusColor(for kind: CLIKind) -> Color {
+        guard let status = controller.cliStatuses[kind], !status.canCollect else { return .secondary }
+        return .orange
     }
 }
 
@@ -402,9 +416,11 @@ private struct SummarizerSettingsView: View {
                 }
 
                 if let selectedKind {
-                    TextField(selectedKind.modelHint, text: modelBinding(for: selectedKind))
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("\(selectedKind.displayName)のモデル")
+                    ModelSelectionControl(
+                        kind: selectedKind,
+                        model: modelBinding(for: selectedKind),
+                        controller: controller
+                    )
                 }
 
                 Toggle("失敗時に別のCLIへ切り替える", isOn: $automaticFallback)
@@ -417,6 +433,10 @@ private struct SummarizerSettingsView: View {
         }
         .onChange(of: controller.cliStatuses) { _, _ in
             normalizePrimaryIfNeeded()
+        }
+        .task(id: selectedKind) {
+            guard let selectedKind else { return }
+            await controller.refreshCLIModels(for: selectedKind)
         }
     }
 
@@ -461,7 +481,7 @@ private struct SummarizerSettingsView: View {
                 case .claudeCode: claudeModel
                 case .opencode: opencodeModel
                 case .pi: piModel
-                case .githubCopilot: ""
+                case .githubCopilot: copilotModel
                 case .kiloCode: kiloModel
                 case .goose: gooseModel
                 case .qwenCode: qwenModel
@@ -474,7 +494,7 @@ private struct SummarizerSettingsView: View {
                 case .claudeCode: claudeModel = value
                 case .opencode: opencodeModel = value
                 case .pi: piModel = value
-                case .githubCopilot: break
+                case .githubCopilot: copilotModel = value
                 case .kiloCode: kiloModel = value
                 case .goose: gooseModel = value
                 case .qwenCode: qwenModel = value
@@ -482,6 +502,95 @@ private struct SummarizerSettingsView: View {
                 }
             }
         )
+    }
+}
+
+private struct ModelSelectionControl: View {
+    let kind: CLIKind
+    @Binding var model: String
+    @ObservedObject var controller: AppController
+
+    var body: some View {
+        if kind.supportsModelListing {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Picker("モデル", selection: $model) {
+                        Text("CLIの既定値")
+                            .tag("")
+
+                        if let currentModel, !controller.models(for: kind).contains(where: { $0.id == currentModel }) {
+                            Text("現在の設定: \(currentModel)")
+                                .tag(model)
+                        }
+
+                        ForEach(controller.models(for: kind)) { availableModel in
+                            if availableModel.displayName == availableModel.id {
+                                Text(availableModel.id)
+                                    .tag(availableModel.id)
+                            } else {
+                                Text("\(availableModel.displayName) (\(availableModel.id))")
+                                    .tag(availableModel.id)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("\(kind.displayName)のモデル")
+
+                    Button {
+                        Task { await controller.refreshCLIModels(for: kind) }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(controller.modelFetchState(for: kind) == .loading)
+                    .accessibilityLabel("\(kind.displayName)のモデル一覧を再取得")
+                }
+
+                catalogStatus
+            }
+            .task(id: kind) {
+                await controller.refreshCLIModels(for: kind)
+            }
+        } else {
+            TextField(kind.modelHint, text: $model)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("\(kind.displayName)のモデル")
+        }
+    }
+
+    private var currentModel: String? {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    @ViewBuilder
+    private var catalogStatus: some View {
+        switch controller.modelFetchState(for: kind) {
+        case .idle:
+            Text("モデル一覧を取得できます。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .loading:
+            Label("モデル一覧を取得中...", systemImage: "arrow.triangle.2.circlepath")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .loaded:
+            if controller.models(for: kind).isEmpty {
+                Text("利用可能なモデルが返されませんでした。CLIの既定値を使用します。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("\(controller.models(for: kind).count)個のモデルを取得済み")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .failed:
+            Label(
+                controller.cliModelErrors[kind] ?? "モデル一覧を取得できませんでした。CLIの既定値を使用できます。",
+                systemImage: "exclamationmark.triangle"
+            )
+            .font(.caption)
+            .foregroundStyle(Color.orange)
+        }
     }
 }
 
@@ -763,7 +872,7 @@ private struct AdvancedSummarizerSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            SettingsHeader(title: "詳細設定", message: "各CLIの実行ファイル、モデル、推論強度を指定できます。")
+            SettingsHeader(title: "詳細設定", message: "各CLIの実行ファイル、モデル、推論強度を指定できます。対応CLIはモデル一覧から選択できます。")
 
             ExecutableRow(
                 kind: .codex,
@@ -884,8 +993,11 @@ private struct ExecutableRow: View {
                 Divider()
                 TextField("実行ファイル（空欄なら自動検出）", text: $path)
                     .textFieldStyle(.roundedBorder)
-                TextField(kind.modelHint, text: $model)
-                    .textFieldStyle(.roundedBorder)
+                ModelSelectionControl(
+                    kind: kind,
+                    model: $model,
+                    controller: controller
+                )
                 if kind.supportsReasoningOverride {
                     TextField("Reasoning: \(kind.reasoningHint)", text: $reasoning)
                         .textFieldStyle(.roundedBorder)
@@ -902,7 +1014,10 @@ private struct ExecutableRow: View {
         .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 11))
         .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 11))
         .onChange(of: path) { _, _ in
-            Task { await controller.refreshCLIStatuses() }
+            Task {
+                await controller.refreshCLIStatuses()
+                await controller.refreshCLIModels(for: kind)
+            }
         }
     }
 

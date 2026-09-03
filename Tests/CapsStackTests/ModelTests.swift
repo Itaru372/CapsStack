@@ -32,10 +32,10 @@ final class ModelTests: XCTestCase {
         let markdown = SummaryMarkdown.document(for: entry)
 
         XCTAssertTrue(markdown.contains("状態**: 要約待ち"))
-        XCTAssertTrue(markdown.contains("収集元**: Codex CLI, Claude Code CLI"))
+        XCTAssertTrue(markdown.contains("収集元**: Codex, Claude Code"))
         XCTAssertTrue(markdown.contains("要約CLIがタイムアウトしました。"))
         XCTAssertTrue(markdown.contains("退席前メモ**: 復帰後に確認する"))
-        XCTAssertTrue(markdown.contains("Claude Code CLI: ログディレクトリがありません"))
+        XCTAssertTrue(markdown.contains("Claude Code: ログディレクトリがありません"))
     }
 
     func testBrandAssetsArePackaged() {

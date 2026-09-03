@@ -71,7 +71,7 @@ enum SummaryMarkdown {
         ]
 
         if !entry.sources.isEmpty {
-            lines.append("- **収集元**: \(entry.sources.map(\.displayName).joined(separator: ", "))")
+            lines.append("- **収集元**: \(entry.sources.map(\.collectionDisplayName).joined(separator: ", "))")
         }
         if let memo = entry.quickMemo, !memo.isEmpty {
             lines.append("- **退席前メモ**: \(memo)")
@@ -84,7 +84,7 @@ enum SummaryMarkdown {
         if !entry.collectionIssues.isEmpty {
             lines.append("")
             lines.append("## 収集時の注意")
-            lines.append(contentsOf: entry.collectionIssues.map { "- \($0.provider.displayName): \($0.message)" })
+            lines.append(contentsOf: entry.collectionIssues.map { "- \($0.provider.collectionDisplayName): \($0.message)" })
         }
         return lines.joined(separator: "\n")
     }

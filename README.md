@@ -19,19 +19,19 @@ Caps Lock OFF  →   Return brief: progress / decisions / blockers / next steps
 
 ## こんな人向け
 
-- MacでCodex CLIやClaude Codeへ数分〜数十分のタスクを任せる
-- 複数のターミナル型コーディングエージェントを使い分ける
+- MacでCodex Desktopや各種CLIへ数分〜数十分のタスクを任せる
+- Desktop・IDE・ターミナルのコーディングエージェントを使い分ける
 - 離席後、長い会話ログやGit diffを読む前に現在地を把握したい
 - エージェントが「何をしたか」だけでなく「次に何をすべきか」を知りたい
 
-CapsStackが直接収集するのはターミナル型エージェントのセッションです。ChatGPTデスクトップアプリやCursorなどのGUI作業は直接収集せず、退席前メモで復帰ブリーフへ補足できます。
+CodexはCLI・Desktop・IDEの共有ローカル履歴を、OpenCodeはDesktop・IDE・CLIで共有されるセッションを公式CLIのexport境界から収集します。一般のChatGPT会話やCursor固有Agentなど、安定した履歴取得境界がないGUI作業は退席前メモで補足できます。
 
 ## 特徴
 
-- 収集元は10種類の対応エージェントから独立して複数選択
+- 収集元は10種類の対応エージェントから独立して複数選択（CodexとOpenCodeはCLI・Desktop・IDEを統合）
 - Caps Lock ON区間の記録をプロジェクトごと、その中のセッションごとに整理
 - 要約担当CLIは収集元と無関係に選択
-- 要約担当ごとにモデルとReasoning（CLI固有のeffort / variant / thinking）を指定
+- 要約担当ごとにモデルとReasoning（CLI固有のeffort / variant / thinking）を指定（Codex、OpenCode、Pi、Kilo CodeはCLIからモデル一覧を取得して選択可能）
 - 主担当が失敗した場合は利用可能な別CLIへ自動フォールバック
 - 退席前に任意メモを入力でき、CLIログがなくても要約を実行（GUI版エージェントの作業補足に対応）
 - 誤操作を防ぐ最短退席時間しきい値を設定可能
@@ -49,16 +49,16 @@ CapsStackが直接収集するのはターミナル型エージェントのセ�
 
 初回起動時の収集元と要約担当は、このMacで検出できたCLI（または読めるローカル履歴）から自動設定されます。CodexとClaude Codeのどちらか一方しか入っていない場合でも、未導入側を既定で呼び出しません。利用可能な設定値は自動設定後も保持され、未導入の要約CLIは実行せず、自動フォールバックが有効なら利用可能なCLIへ切り替えます。別のCLIを後から追加した場合は設定画面から収集元・要約担当を選べます。旧バージョンから移行する場合も、CLIも履歴も使えない収集元だけは一度だけ自動停止します。
 
-## 対応CLIの実装境界
+## 対応エージェントの実装境界
 
-| CLI | セッション収集 | 要約起動 | モデル / Reasoning |
+| エージェント | セッション収集 | 要約起動 | モデル / Reasoning |
 | --- | --- | --- | --- |
-| Codex | `~/.codex/sessions` のJSONL | `codex exec --ephemeral --sandbox read-only --output-schema` | `--model` / `--config model_reasoning_effort=...` |
+| Codex | CLI・Desktop・IDEが保存する `~/.codex/sessions` のJSONL。メタデータからクライアント種別を識別 | `codex exec --ephemeral --sandbox read-only --output-schema` | `codex debug models --bundled` で一覧 / `--model` / `--config model_reasoning_effort=...` |
 | Claude Code | `~/.claude/projects` のJSONL | `claude -p`（安全境界は常時、任意機能だけ `--help` で有効化） | `--model` / `--effort` |
-| OpenCode | `opencode session list --format json` + `opencode export` | `opencode run --format json --variant` | `--model provider/model` / model固有のvariant |
-| Pi | `~/.pi/agent/sessions` のJSONL | `pi --print --no-session --no-tools` | `--model` / `--thinking` |
+| OpenCode | Desktop・IDE・CLI共有セッションを `opencode session list --format json` + `opencode export` で取得 | `opencode run --format json --variant` | `opencode models` で一覧 / `--model provider/model` / model固有のvariant |
+| Pi | `~/.pi/agent/sessions` のJSONL | `pi --print --no-session --no-tools` | `pi --list-models` で一覧 / `--model` / `--thinking` |
 | GitHub Copilot | `$COPILOT_HOME/session-state/*/events.jsonl`（既定 `~/.copilot`） | `copilot -p --available-tools= --disable-builtin-mcps` | `--model` / `--effort` |
-| Kilo Code | `kilo session list --all --format json` + `kilo export` | `kilo run --agent ask --format json` | `--model` |
+| Kilo Code | `kilo session list --all --format json` + `kilo export` | `kilo run --agent ask --format json` | `kilo models` で一覧 / `--model` |
 | Goose | `goose session list --format json` + `goose session export --format json` | `GOOSE_MODE=chat goose run --no-session --output-format json` | `--model` |
 | Qwen Code | `$QWEN_RUNTIME_DIR` / `$QWEN_HOME` の `projects/`・`tmp/`（新旧JSONL配置を両対応） | `qwen -p --safe-mode --exclude-tools ... --max-tool-calls 0` | `--model` |
 | Continue | `~/.continue/sessions` のJSON | —（収集専用） | — |
@@ -68,15 +68,17 @@ OpenCode、Kilo Code、GooseはDB-backed storageを直接解釈せず、公式CL
 
 要約時は全CLIで元の作業ディレクトリをcwdにせず、一時ディレクトリを使います。Copilotは利用可能ツールと組み込みMCPを空にし、KiloはAsk agent、Gooseは全ツール無効のChat mode、Qwenはsafe mode・tool deny・tool-call上限0を併用します。OpenCode要約のセッションDBも一時ディレクトリへ隔離します。
 
-モデルIDとReasoningの有効値はCLIやモデルごとに変わるため、設定欄は自由入力です。空欄なら各CLIの既定値を使います。OpenCodeのvariantはモデルごとに有効値が異なります。ContinueとGemini CLIは安全な無人要約境界を保守的に評価し、現時点では収集専用です。
+モデルIDとReasoningの有効値はCLIやモデルごとに変わります。Codex、OpenCode、Pi、Kilo Codeは公式CLIのモデル一覧境界から取得した候補を設定画面で選択できます。その他のCLIは安定した一覧取得境界がないためモデルIDを自由入力できます。どのCLIも空欄なら各CLIの既定値を使います。OpenCodeのvariantはモデルごとに有効値が異なります。ContinueとGemini CLIは安全な無人要約境界を保守的に評価し、現時点では収集専用です。
 
 Cursor CLIは非対話モードが書込み権限を持ち、Aiderはプロジェクト横断の中央履歴/export契約がなく、Roo CodeはCLI境界が移行中のため、名前だけの対応にはしていません。安定した公式境界が確認できた時点で追加します。
 
 ## GUI版エージェントと退席前メモ
 
-ChatGPTデスクトップアプリやCursorなど、JSONLログを読めないGUIエージェントの作業はCapsStackが直接収集できません。その代わり、メニューバーの「退席前メモ...」から専用ウィンドウへ入力しておくと、復帰時の要約資料に含まれます。
+設定の収集元はクライアント別ではなくエージェント単位です。「Codex」を有効にするとCLI・Desktop・IDEのセッションをまとめて収集し、セッション別要約には「Codex Desktop」「Codex CLI」など実際のクライアントを表示します。「OpenCode」は公式exportがクライアント種別を公開しないため「OpenCode 共有セッション」と表示し、DesktopアプリだけでCLIがない場合は設定画面でexport用CLIが必要だと案内します。
 
-CLIセッションが一件も検出されず、退席前メモだけがある場合は、メモ単体を要約対象として扱います。これにより、GUI専用ワークフローや短い外出でも履歴が空になりません。
+画面収録やAccessibility監視、非公開DBの直接解析は行いません。一般のChatGPT会話やCursor固有Agentなど、安定した公開履歴を読めないGUIエージェントは、メニューバーの「退席前メモ...」から補足すると復帰時の要約資料に含まれます。
+
+対応セッションが一件も検出されず、退席前メモだけがある場合は、メモ単体を要約対象として扱います。これにより、未対応GUIのワークフローや短い外出でも履歴が空になりません。
 
 実装時の照合先： [Codex exec CLI](https://github.com/openai/codex/blob/main/codex-rs/exec/src/cli.rs)、[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/cli-usage)、[OpenCode CLI](https://dev.opencode.ai/docs/cli/)、[Pi usage](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/usage.md)、[GitHub Copilot CLI](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference)、[Kilo CLI](https://kilo.ai/docs/code-with-ai/platforms/cli)、[Goose CLI](https://github.com/aaif-goose/goose/blob/main/documentation/docs/guides/goose-cli-commands.md)、[Qwen headless mode](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/headless.md)、[Continue headless mode](https://docs.continue.dev/cli/headless-mode)、[Gemini session management](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/session-management.md)。
 

@@ -24,6 +24,9 @@ enum CLIFormatting {
         if let provider = entry.provider {
             lines.append("- **要約CLI**: \(provider.displayName)\(entry.fallbackUsed ? "（フォールバック）" : "")")
         }
+        if !entry.sources.isEmpty {
+            lines.append("- **収集元**: \(entry.sources.map(\.collectionDisplayName).joined(separator: ", "))")
+        }
         if let memo = normalized(entry.quickMemo) {
             lines.append("- **退席前メモ**: \(memo)")
         }
