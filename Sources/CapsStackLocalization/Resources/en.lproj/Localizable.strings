@@ -1,0 +1,2 @@
+/* English is the key/fallback language. This table keeps the SwiftPM bundle's development
+   localization explicit; missing entries intentionally fall back to their source key. */

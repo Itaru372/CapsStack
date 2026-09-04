@@ -1,5 +1,5 @@
 {
-  "originHash" : "8d5bb288d6dc4d34d05cf8cedd0af2ca7025682f38fec9d41f82279d6147fbe9",
+  "originHash" : "b4363b5521c420956cb7f68058e5f67d2fa438e32cf93676b7abf021f0444045",
   "pins" : [
     {
       "identity" : "posthog-ios",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "9b12d093e774883c40ee456e34b74b45cee03d46",
         "version" : "3.69.5"
+      }
+    },
+    {
+      "identity" : "yams",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpsim/Yams.git",
+      "state" : {
+        "revision" : "a27b21e0c81c5bf42049b897a62aaf387e80f279",
+        "version" : "6.2.2"
       }
     }
   ],

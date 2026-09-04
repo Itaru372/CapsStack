@@ -39,6 +39,7 @@ CodexはCLI・Desktop・IDEの共有ローカル履歴を、OpenCodeはDesktop�
 - 元セッションをresumeせず、隔離した一時ディレクトリで要約のみ実行
 - 成功時は生ログを削除し、失敗時だけ再要約用に保持
 - 履歴ウィンドウ、macOS通知、`.pkg`生成に対応
+- 完了ブリーフから任意の4択で役立ち度を回答可能（記述式フィードバックなし）
 - 匿名テレメトリは初回セットアップで明示的にオプトインした場合だけ送信（SDKの自動収集・Session Replayは無効）
 
 ## 必要環境
@@ -58,19 +59,19 @@ CodexはCLI・Desktop・IDEの共有ローカル履歴を、OpenCodeはDesktop�
 | OpenCode | Desktop・IDE・CLI共有セッションを `opencode session list --format json` + `opencode export` で取得 | `opencode run --format json --variant` | `opencode models` で一覧 / `--model provider/model` / model固有のvariant |
 | Pi | `~/.pi/agent/sessions` のJSONL | `pi --print --no-session --no-tools` | `pi --list-models` で一覧 / `--model` / `--thinking` |
 | GitHub Copilot | `$COPILOT_HOME/session-state/*/events.jsonl`（既定 `~/.copilot`） | `copilot -p --available-tools= --disable-builtin-mcps` | `--model` / `--effort` |
-| Kilo Code | `kilo session list --all --format json` + `kilo export` | `kilo run --agent ask --format json` | `kilo models` で一覧 / `--model` |
+| Kilo Code | `kilo session list --all --format json` + `kilo export` | —（収集専用） | — |
 | Goose | `goose session list --format json` + `goose session export --format json` | `GOOSE_MODE=chat goose run --no-session --output-format json` | `--model` |
 | Qwen Code | `$QWEN_RUNTIME_DIR` / `$QWEN_HOME` の `projects/`・`tmp/`（新旧JSONL配置を両対応） | `qwen -p --safe-mode --exclude-tools ... --max-tool-calls 0` | `--model` |
 | Continue | `~/.continue/sessions` のJSON | —（収集専用） | — |
 | Gemini CLI | `$GEMINI_CLI_HOME/.gemini/tmp`（既定 `~/.gemini/tmp`）のJSON/JSONL | —（収集専用） | — |
 
-OpenCode、Kilo Code、GooseはDB-backed storageを直接解釈せず、公式CLIの一覧・export境界を使います。Gemini CLIとContinueは複数行JSON、Qwen Codeは新旧JSONLの保存配置を読み取ります。GitHub Copilotは `events.jsonl` だけを読み、同じセッションフォルダにあるcheckpointやworkspace artifactを本文として取り込みません。
+OpenCode、Kilo Code、GooseはDB-backed storageを直接解釈せず、公式CLIの一覧・export境界を使います。Gemini CLIとContinueは複数行JSON、Qwen Codeは新旧JSONLの保存配置を読み取ります。GitHub Copilotは `events.jsonl` だけを読み、同じセッションフォルダにあるcheckpointやworkspace artifactを本文として取り込みません。Kilo Codeは公式の無人実行にツール無効化・読み取り専用・設定分離の安定した境界が公開されるまで、収集専用です。
 
-要約時は全CLIで元の作業ディレクトリをcwdにせず、一時ディレクトリを使います。Copilotは利用可能ツールと組み込みMCPを空にし、KiloはAsk agent、Gooseは全ツール無効のChat mode、Qwenはsafe mode・tool deny・tool-call上限0を併用します。OpenCode要約のセッションDBも一時ディレクトリへ隔離します。
+要約時は対応する全CLIで元の作業ディレクトリをcwdにせず、一時ディレクトリを使います。Copilotは利用可能ツールと組み込みMCPを空にし、Gooseは全ツール無効のChat mode、Qwenはsafe mode・tool deny・tool-call上限0を併用します。OpenCode要約のセッションDBも一時ディレクトリへ隔離します。
 
-モデルIDとReasoningの有効値はCLIやモデルごとに変わります。Codex、OpenCode、Pi、Kilo Codeは公式CLIのモデル一覧境界から取得した候補を設定画面で選択できます。その他のCLIは安定した一覧取得境界がないためモデルIDを自由入力できます。どのCLIも空欄なら各CLIの既定値を使います。OpenCodeのvariantはモデルごとに有効値が異なります。ContinueとGemini CLIは安全な無人要約境界を保守的に評価し、現時点では収集専用です。
+モデルIDとReasoningの有効値はCLIやモデルごとに変わります。Codex、OpenCode、Piは公式CLIのモデル一覧境界から取得した候補を設定画面で選択できます。その他のCLIは安定した一覧取得境界がないためモデルIDを自由入力できます。どのCLIも空欄なら各CLIの既定値を使います。OpenCodeのvariantはモデルごとに有効値が異なります。Kilo Code、Continue、Gemini CLIは安全な無人要約境界を保守的に評価し、現時点では収集専用です。
 
-Cursor CLIは非対話モードが書込み権限を持ち、Aiderはプロジェクト横断の中央履歴/export契約がなく、Roo CodeはCLI境界が移行中のため、名前だけの対応にはしていません。安定した公式境界が確認できた時点で追加します。
+Cursor CLIは非対話モードが書込み権限を持ち、Aiderはプロジェクト横断の中央履歴/export契約がなく、Kilo Codeは安全な無人要約境界がなく、Roo CodeはCLI境界が移行中のため、名前だけの対応にはしていません。安定した公式境界が確認できた時点で追加します。
 
 ## GUI版エージェントと退席前メモ
 
@@ -203,7 +204,16 @@ NOTARY_PROFILE="capsstack-notary" ./script/notarize.sh
 
 CapsStackはセッション本文、退席前メモ、作業ディレクトリ、ファイルパスを独自サーバーへ送信しません。ただし要約CLIは各サービスの設定に従って入力を処理します。要約成功後、生ログと一時資料は削除されます。
 
-匿名テレメトリは、復帰ブリーフの成功率・失敗種別・利用操作などの集計イベントだけをPostHogへ送信します。初期状態はOFFで、初回セットアップで明示的にONにした場合だけ有効です。設定画面には常設のトグルを表示せず、「一般」からセットアップを開き直すと選択を変更できます。自動ライフサイクル収集、画面遷移の自動収集、Session Replay、LLMのプロンプト／出力収集は使用しません。PostHogプロジェクトが設定されていないビルドでは、イベントは送信されません。
+匿名テレメトリは、初回セットアップで明示的にONにした場合だけ、次の集計イベントをPostHogへ送信します。初期状態はOFFで、同意前はSDKも初期化しません。
+選択は設定の「セットアップを開く」から後で見直せます。
+
+- `setup_completed`: セットアップ完了、収集元数のバケット、要約担当、`telemetry_enabled=true`
+- `first_return_brief_completed`: このインストールで最初に永続化された成功ブリーフ、担当CLI、フォールバック使用、離席時間・要約時間のバケット
+- `return brief consumed`: 完了ブリーフの表示・コピー・書き出し操作（既存イベント名とプロパティを維持）
+- `brief_feedback_submitted`: 完了ブリーフへの任意のワンクリック回答（`helpful` / `missing_important_context` / `too_verbose` / `incorrect_or_misleading`）
+
+従来の `return brief requested` / `return brief completed` / `return brief empty` / `return brief failed`、`summary retry …`、`provider connection tested` も、従来どおり集計値だけを送信します。
+既存のスペース区切りイベント名は互換性のため変更せず、新しいイベントだけsnake_caseを使います。自動ライフサイクル収集、画面遷移の自動収集、Session Replay、LLMのプロンプト／出力収集、記述式フィードバックは使用しません。履歴、メモ、セッション本文、作業ディレクトリ、ファイルパス、セッション／モデルID、認証情報、生エラーはイベントへ含めません。PostHogプロジェクトが設定されていないビルドでは、イベントは送信されません。
 
 PostHogを有効にした配布用ビルドは、公開プロジェクトトークンをビルド時に埋め込みます。トークンや送信先はソースへコミットせず、次の環境変数で指定します。
 

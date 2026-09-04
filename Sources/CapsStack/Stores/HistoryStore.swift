@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 enum HistoryStoreError: LocalizedError, Equatable {
@@ -7,9 +8,9 @@ enum HistoryStoreError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidHistoryData:
-            return "Could not read the CapsStack history file."
+            return CapsStackText.resolve(.historyReadFailure)
         case .pendingArtifactNotFound(let id):
-            return "Pending collection artifact not found: \(id.uuidString)"
+            return CapsStackText.format(.pendingArtifactNotFound, id.uuidString)
         }
     }
 }

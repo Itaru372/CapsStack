@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 enum CLICommand: Equatable {
@@ -20,10 +21,10 @@ enum CLIArgumentError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .unknownCommand(let command): "Unknown command: \(command)"
-        case .missingArgument(let argument): "Missing argument: \(argument)"
-        case .invalidArgument(let argument): "Invalid argument: \(argument)"
-        case .conflictingOptions(let options): "Conflicting options: \(options)"
+        case .unknownCommand(let command): CapsStackText.format(.unknownCommand, command)
+        case .missingArgument(let argument): CapsStackText.format(.missingArgument, argument)
+        case .invalidArgument(let argument): CapsStackText.format(.invalidArgument, argument)
+        case .conflictingOptions(let options): CapsStackText.format(.conflictingOptions, options)
         }
     }
 }
@@ -53,7 +54,9 @@ enum CLIArgumentParser {
     }
 
     private static func parseHistory(_ arguments: [String]) throws -> CLICommand {
-        guard let action = arguments.first else { throw CLIArgumentError.missingArgument("list|latest|show") }
+        guard let action = arguments.first else {
+            throw CLIArgumentError.missingArgument(CapsStackText.resolve(.historyActions))
+        }
         let rest = Array(arguments.dropFirst())
         switch action {
         case "list":
@@ -66,7 +69,9 @@ enum CLIArgumentParser {
                     json = true
                     index += 1
                 case "--limit":
-                    guard index + 1 < rest.count else { throw CLIArgumentError.missingArgument("--limit N") }
+                    guard index + 1 < rest.count else {
+                        throw CLIArgumentError.missingArgument("--limit N")
+                    }
                     guard let parsed = Int(rest[index + 1]), parsed > 0 else {
                         throw CLIArgumentError.invalidArgument("--limit \(rest[index + 1])")
                     }
@@ -89,7 +94,9 @@ enum CLIArgumentParser {
     }
 
     private static func parseMemo(_ arguments: [String]) throws -> CLICommand {
-        guard let action = arguments.first else { throw CLIArgumentError.missingArgument("get|set|clear") }
+        guard let action = arguments.first else {
+            throw CLIArgumentError.missingArgument(CapsStackText.resolve(.memoActions))
+        }
         let rest = Array(arguments.dropFirst())
         switch action {
         case "get":
@@ -110,9 +117,11 @@ enum CLIArgumentParser {
                 }
             }
             if stdin && !textParts.isEmpty {
-                throw CLIArgumentError.conflictingOptions("--stdin and <text>")
+                throw CLIArgumentError.conflictingOptions(CapsStackText.resolve(.stdinAndText))
             }
-            if !stdin && textParts.isEmpty { throw CLIArgumentError.missingArgument("<text> or --stdin") }
+            if !stdin && textParts.isEmpty {
+                throw CLIArgumentError.missingArgument(CapsStackText.resolve(.textOrStdin))
+            }
             return .memoSet(text: textParts.isEmpty ? nil : textParts.joined(separator: " "), stdin: stdin, json: json)
         default:
             throw CLIArgumentError.unknownCommand("memo \(action)")
@@ -139,7 +148,7 @@ enum CLIArgumentParser {
             default: throw CLIArgumentError.invalidArgument(argument)
             }
             guard mode == .human else {
-                throw CLIArgumentError.conflictingOptions("--json and --markdown")
+                throw CLIArgumentError.conflictingOptions(CapsStackText.resolve(.jsonAndMarkdown))
             }
             mode = requested
         }

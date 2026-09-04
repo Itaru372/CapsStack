@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 struct AwayInterval: Codable, Equatable, Sendable {
@@ -53,7 +54,7 @@ enum AgentClientKind: String, Codable, Equatable, Sendable {
         case .desktop: "\(provider.collectionDisplayName) Desktop"
         case .ideExtension: "\(provider.collectionDisplayName) IDE"
         case .sdk: "\(provider.collectionDisplayName) SDK"
-        case .shared: "\(provider.collectionDisplayName) Shared Session"
+        case .shared: CapsStackText.format(.sharedSession, provider.collectionDisplayName)
         case .unknown: provider.collectionDisplayName
         }
     }
@@ -142,7 +143,7 @@ enum CollectionProjectGrouping {
     }
 
     private static func projectName(for directory: String?) -> String {
-        guard let directory = normalizedDirectory(directory) else { return "Unknown project" }
+        guard let directory = normalizedDirectory(directory) else { return CapsStackText.resolve(.unknownProject) }
         let name = URL(fileURLWithPath: directory, isDirectory: true).lastPathComponent
         return name.isEmpty ? directory : name
     }

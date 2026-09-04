@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import SwiftUI
 
 struct SettingsView: View {
@@ -10,7 +11,7 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                TextField("Search settings…", text: $searchText)
+                TextField(CapsStackText.resolve(.searchSettings), text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.callout)
                     .padding(.horizontal, 10)
@@ -61,18 +62,19 @@ struct SettingsView: View {
                 .frame(maxWidth: 780, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .frame(minWidth: 900, idealWidth: 980, minHeight: 600, idealHeight: 680)
         .background(BrandPalette.BriefTheme.canvas.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .tint(BrandPalette.BriefTheme.signal)
         .confirmationDialog(
-            "Delete all history and retry data?",
+            CapsStackText.resource(.deleteAllHistoryConfirmation),
             isPresented: $showsClearHistoryConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Delete All", role: .destructive) {
+            Button(CapsStackText.resource(.deleteAll), role: .destructive) {
                 controller.clearAllHistory()
             }
-            Button("Cancel", role: .cancel) {}
+            Button(CapsStackText.resource(.cancel), role: .cancel) {}
         }
         .onChange(of: searchText) { _, newValue in
             let sections = filteredSections
@@ -139,7 +141,9 @@ private struct SettingsScrollView<Content: View>: View {
     var body: some View {
         ScrollView {
             content()
+                .padding(.bottom, 20)
         }
+        .scrollIndicators(.visible)
     }
 }
 
@@ -156,13 +160,13 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .collectors: "Sources"
-        case .summarizers: "Summarizer"
-        case .general: "General"
-        case .notifications: "Notifications"
-        case .hotkeys: "Keyboard shortcuts"
-        case .data: "Data management"
-        case .advanced: "Advanced"
+        case .collectors: CapsStackText.resolve(.sources)
+        case .summarizers: CapsStackText.resolve(.summarizer)
+        case .general: CapsStackText.resolve(.general)
+        case .notifications: CapsStackText.resolve(.notifications)
+        case .hotkeys: CapsStackText.resolve(.keyboardShortcuts)
+        case .data: CapsStackText.resolve(.dataManagement)
+        case .advanced: CapsStackText.resolve(.advanced)
         }
     }
 
@@ -180,13 +184,13 @@ private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
 
     var searchKeywords: String {
         switch self {
-        case .collectors: "Codex Claude OpenCode Pi GitHub Copilot Kilo Goose Qwen Continue Gemini sources logs connection"
-        case .summarizers: "summary CLI model fallback signal reasoning"
-        case .general: "Caps Lock launch background accessibility away"
-        case .notifications: "permission notifications alert sound"
-        case .hotkeys: "shortcuts command history settings quit"
-        case .data: "history delete backup folder memo privacy"
-        case .advanced: "executable path reasoning effort variant thinking"
+        case .collectors: "Codex Claude OpenCode Pi GitHub Copilot Kilo Goose Qwen Continue Gemini sources logs connection 収集元 ログ 接続"
+        case .summarizers: "summary CLI model fallback signal reasoning 要約 モデル フォールバック 推論"
+        case .general: "Caps Lock launch background accessibility away 起動 常駐 アクセシビリティ 退席"
+        case .notifications: "permission notifications alert sound 許可 通知 サウンド"
+        case .hotkeys: "shortcuts command history settings quit ショートカット 履歴 設定 終了"
+        case .data: "history delete backup folder memo privacy 履歴 削除 フォルダ メモ プライバシー"
+        case .advanced: "executable path reasoning effort variant thinking 実行ファイル パス 推論強度"
         }
     }
 }
@@ -226,8 +230,8 @@ private struct CollectorSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
             SettingsHeader(
-                title: "Sources",
-                message: "Choose which agents to collect while you are away. History from supported CLI, Desktop, and IDE clients is combined."
+                title: CapsStackText.resolve(.sources),
+                message: CapsStackText.resolve(.sourcesDescription)
             )
 
             VStack(spacing: 10) {
@@ -236,7 +240,10 @@ private struct CollectorSettingsView: View {
                 }
 
                 if !unavailableCollectorKinds.isEmpty {
-                    DisclosureGroup("Unavailable agents (\(unavailableCollectorKinds.count))", isExpanded: $showsUnavailableCollectors) {
+                    DisclosureGroup(
+                        CapsStackText.format(.unavailableAgents, unavailableCollectorKinds.count),
+                        isExpanded: $showsUnavailableCollectors
+                    ) {
                         VStack(spacing: 10) {
                             ForEach(unavailableCollectorKinds) { kind in
                                 collectorRow(kind: kind, isOn: binding(for: kind))
@@ -251,7 +258,7 @@ private struct CollectorSettingsView: View {
             }
 
             if !CLIKind.collectorCases.contains(where: isEnabled) {
-                Label("No collection sources selected", systemImage: "exclamationmark.triangle")
+                Label(CapsStackText.resource(.noCollectionSourcesSelected), systemImage: "exclamationmark.triangle")
                     .font(.callout.weight(.medium))
                     .foregroundStyle(Color.orange)
                     .padding(14)
@@ -334,8 +341,8 @@ private struct CollectorSettingsView: View {
             }
             .toggleStyle(.switch)
             .disabled(cannotEnable(kind, isOn: isOn))
-            .accessibilityLabel("Collect from \(kind.collectionDisplayName)")
-            .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
+            .accessibilityLabel(CapsStackText.format(.collectFrom, kind.collectionDisplayName))
+            .accessibilityValue(CapsStackText.resolve(isOn.wrappedValue ? .on : .off))
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 11))
@@ -349,7 +356,7 @@ private struct CollectorSettingsView: View {
         if let status = controller.cliStatuses[kind] {
             Text(status.collectionStatusDescription)
         } else {
-            Text("Checking…")
+            Text(CapsStackText.resource(.checking))
         }
     }
 
@@ -385,13 +392,13 @@ private struct SummarizerSettingsView: View {
 
     var body: some View {
         Form {
-            Section("Return brief") {
-                Picker("Summarizer CLI", selection: $primaryRaw) {
+            Section(CapsStackText.resource(.returnBriefSection)) {
+                Picker(CapsStackText.resource(.summarizerCLI), selection: $primaryRaw) {
                     ForEach(displayedSummarizerKinds) { kind in
                         HStack {
                             Label(kind.displayName, systemImage: kind.systemImage)
                             if kind == .codex {
-                                Text("Recommended")
+                                Text(CapsStackText.resource(.recommended))
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(BrandPalette.BriefTheme.signal)
                             }
@@ -402,20 +409,22 @@ private struct SummarizerSettingsView: View {
                 .pickerStyle(.radioGroup)
 
                 if !unavailableSummarizerKinds.isEmpty {
-                    Button(showsUnavailableSummarizers ? "Hide unavailable CLIs" : "Show unavailable CLIs") {
+                    Button(CapsStackText.resource(
+                        showsUnavailableSummarizers ? .hideUnavailableCLIs : .showUnavailableCLIs
+                    )) {
                         showsUnavailableSummarizers.toggle()
                     }
                     .buttonStyle(.link)
                 }
 
                 if let selectedKind, controller.cliStatuses[selectedKind]?.isInstalled == false {
-                    Label("The selected CLI was not detected. Set its executable in Advanced settings.", systemImage: "exclamationmark.triangle")
+                    Label(CapsStackText.resource(.selectedCLINotDetected), systemImage: "exclamationmark.triangle")
                         .font(.callout)
                         .foregroundStyle(Color.orange)
                 }
 
                 if displayedSummarizerKinds.isEmpty {
-                    Label("No summarizer CLI is available. Install Codex, Claude Code, OpenCode, or Pi, or set an executable in Advanced settings.", systemImage: "exclamationmark.triangle")
+                    Label(CapsStackText.resource(.noSummarizerAvailable), systemImage: "exclamationmark.triangle")
                         .font(.callout)
                         .foregroundStyle(Color.orange)
                 }
@@ -434,7 +443,7 @@ private struct SummarizerSettingsView: View {
                     }
                 }
 
-                Toggle("Switch to another CLI if the summary fails", isOn: $automaticFallback)
+                Toggle(CapsStackText.resource(.switchCLIOnFailure), isOn: $automaticFallback)
             }
         }
         .formStyle(.grouped)
@@ -550,12 +559,12 @@ private struct ModelSelectionControl: View {
         if kind.supportsModelListing {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 10) {
-                    Picker("Model", selection: $model) {
-                        Text("CLI default")
+                    Picker(CapsStackText.resource(.model), selection: $model) {
+                        Text(CapsStackText.resource(.cliDefault))
                             .tag("")
 
                         if let currentModel, !controller.models(for: kind).contains(where: { $0.id == currentModel }) {
-                            Text("Current setting: \(currentModel)")
+                            Text(CapsStackText.format(.currentSetting, currentModel))
                                 .tag(model)
                         }
 
@@ -569,7 +578,7 @@ private struct ModelSelectionControl: View {
                             }
                         }
                     }
-                    .accessibilityLabel("\(kind.displayName) model")
+                    .accessibilityLabel(CapsStackText.format(.modelAccessibility, kind.displayName))
 
                     Button {
                         Task { await controller.refreshCLIModels(for: kind) }
@@ -578,7 +587,7 @@ private struct ModelSelectionControl: View {
                     }
                     .buttonStyle(.borderless)
                     .disabled(controller.modelFetchState(for: kind) == .loading)
-                    .accessibilityLabel("Refresh \(kind.displayName) model list")
+                    .accessibilityLabel(CapsStackText.format(.refreshModelList, kind.displayName))
                 }
 
                 catalogStatus
@@ -589,7 +598,7 @@ private struct ModelSelectionControl: View {
         } else {
             TextField(kind.modelHint, text: $model)
                 .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("\(kind.displayName) model")
+                .accessibilityLabel(CapsStackText.format(.modelAccessibility, kind.displayName))
         }
     }
 
@@ -602,26 +611,26 @@ private struct ModelSelectionControl: View {
     private var catalogStatus: some View {
         switch controller.modelFetchState(for: kind) {
         case .idle:
-            Text("You can fetch the model list.")
+            Text(CapsStackText.resource(.canFetchModelList))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .loading:
-            Label("Fetching model list…", systemImage: "arrow.triangle.2.circlepath")
+            Label(CapsStackText.resource(.fetchingModelList), systemImage: "arrow.triangle.2.circlepath")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .loaded:
             if controller.models(for: kind).isEmpty {
-                Text("No models were returned. The CLI default will be used.")
+                Text(CapsStackText.resource(.noModelsReturned))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Fetched \(controller.models(for: kind).count) models")
+                Text(CapsStackText.format(.fetchedModels, controller.models(for: kind).count))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         case .failed:
             Label(
-                controller.cliModelErrors[kind] ?? "Could not fetch the model list. You can use the CLI default.",
+                controller.cliModelErrors[kind] ?? CapsStackText.resolve(.modelListFetchFallback),
                 systemImage: "exclamationmark.triangle"
             )
             .font(.caption)
@@ -636,16 +645,16 @@ private struct ReasoningSelectionControl: View {
 
     var body: some View {
         if reasoningOptions.isEmpty {
-            TextField("Reasoning: \(kind.reasoningHint)", text: $reasoning)
+            TextField(CapsStackText.format(.reasoningHint, kind.reasoningHint), text: $reasoning)
                 .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("\(kind.displayName) reasoning")
+                .accessibilityLabel(CapsStackText.format(.reasoningAccessibility, kind.displayName))
         } else {
-            Picker("Reasoning", selection: $reasoning) {
-                Text("CLI default")
+            Picker(CapsStackText.resource(.reasoning), selection: $reasoning) {
+                Text(CapsStackText.resource(.cliDefault))
                     .tag("")
 
                 if let currentReasoning, !reasoningOptions.contains(currentReasoning) {
-                    Text("Current setting: \(currentReasoning)")
+                    Text(CapsStackText.format(.currentSetting, currentReasoning))
                         .tag(currentReasoning)
                 }
 
@@ -654,7 +663,7 @@ private struct ReasoningSelectionControl: View {
                         .tag(option)
                 }
             }
-            .accessibilityLabel("\(kind.displayName) reasoning")
+            .accessibilityLabel(CapsStackText.format(.reasoningAccessibility, kind.displayName))
         }
     }
 
@@ -691,43 +700,43 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
-            Section("CapsStack") {
-                Toggle("Enable CapsStack", isOn: Binding(
+            Section(CapsStackText.resource(.capsStackSection)) {
+                Toggle(CapsStackText.resource(.enableCapsStack), isOn: Binding(
                     get: { capsStackEnabled },
                     set: { newValue in
                         capsStackEnabled = newValue
                         controller.setCapsStackEnabled(newValue)
                     }
                 ))
-                Stepper("Minimum away time: \(minimumAwaySeconds) seconds", value: $minimumAwaySeconds, in: 0...3600, step: 5)
+                Stepper(CapsStackText.format(.minimumAwayTime, minimumAwaySeconds), value: $minimumAwaySeconds, in: 0...3600, step: 5)
             }
 
-            Section("Caps Lock") {
-                Toggle("Disable normal Caps Lock input", isOn: $suppressOriginalCapsLock)
+            Section(CapsStackText.resource(.capsLock)) {
+                Toggle(CapsStackText.resource(.disableNormalCapsLock), isOn: $suppressOriginalCapsLock)
 
                 if suppressOriginalCapsLock {
                     if controller.isSuppressingOriginalCapsLock {
-                        Label("Enabled", systemImage: "checkmark.circle.fill")
+                        Label(CapsStackText.resource(.enabled), systemImage: "checkmark.circle.fill")
                             .foregroundStyle(BrandPalette.BriefTheme.signal)
                     } else {
-                        Label("Accessibility permission required", systemImage: "lock.shield")
+                        Label(CapsStackText.resource(.accessibilityPermissionRequired), systemImage: "lock.shield")
                             .foregroundStyle(Color.orange)
-                        Button("Open System Settings") {
+                        Button(CapsStackText.resource(.openSystemSettings)) {
                             controller.openAccessibilitySettings()
                         }
                     }
                 }
             }
 
-            Section("Background") {
-                Toggle("Always run in the background", isOn: Binding(
+            Section(CapsStackText.resource(.background)) {
+                Toggle(CapsStackText.resource(.alwaysRunBackground), isOn: Binding(
                     get: { keepRunningInBackground },
                     set: { newValue in
                         keepRunningInBackground = newValue
                         controller.setKeepRunningInBackground(newValue)
                     }
                 ))
-                Toggle("Launch at login", isOn: Binding(
+                Toggle(CapsStackText.resource(.launchAtLogin), isOn: Binding(
                     get: { launchAtLogin.isEnabled },
                     set: { launchAtLogin.setEnabled($0) }
                 ))
@@ -738,12 +747,12 @@ private struct GeneralSettingsView: View {
                 }
             }
 
-            Section("Setup") {
-                Button("Open setup…") {
+            Section(CapsStackText.resource(.setup)) {
+                Button(CapsStackText.resource(.openSetup)) {
                     setupCompleted = false
                     openWindow(id: "history")
                 }
-                Text("Review your source, summarizer, and anonymous telemetry choices.")
+                Text(CapsStackText.resource(.reviewSetupChoices))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -761,7 +770,7 @@ private struct NotificationSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            SettingsHeader(title: "Notifications", message: "Receive the summary result in a macOS notification when you return.")
+            SettingsHeader(title: CapsStackText.resolve(.notifications), message: CapsStackText.resolve(.notificationsDescription))
 
             HStack(spacing: 16) {
                 Image(systemName: "bell.fill")
@@ -769,7 +778,7 @@ private struct NotificationSettingsView: View {
                     .background(BrandPalette.BriefTheme.signal.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("macOS notifications").font(.headline)
+                    Text(CapsStackText.resource(.macOSNotifications)).font(.headline)
                     Text(authorizationMessage)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -778,14 +787,14 @@ private struct NotificationSettingsView: View {
                 Spacer()
 
                 if controller.isNotificationAuthorized == true {
-                    Label("Allowed", systemImage: "checkmark.circle.fill")
+                    Label(CapsStackText.resource(.allowed), systemImage: "checkmark.circle.fill")
                         .foregroundStyle(BrandPalette.BriefTheme.signal)
                 } else if controller.isNotificationAuthorized == false {
-                    Button("Open System Settings") {
+                    Button(CapsStackText.resource(.openSystemSettings)) {
                         controller.openNotificationSettings()
                     }
                 } else {
-                    Button("Request permission") {
+                    Button(CapsStackText.resource(.requestPermission)) {
                         Task { await controller.requestNotificationAuthorization() }
                     }
                 }
@@ -798,24 +807,24 @@ private struct NotificationSettingsView: View {
 
     private var authorizationMessage: String {
         switch controller.isNotificationAuthorized {
-        case true: "Summary completions and failures can be delivered."
-        case false: "Allow CapsStack notifications in System Settings."
-        case nil: "Checking permission…"
+        case true: CapsStackText.resolve(.notificationsAllowedDescription)
+        case false: CapsStackText.resolve(.notificationsDeniedDescription)
+        case nil: CapsStackText.resolve(.checkingPermission)
         }
     }
 }
 
 private struct HotkeySettingsView: View {
     private let shortcuts: [(name: String, shortcut: String)] = [
-        ("Open History", "⌘O"),
-        ("Open away memo", "⇧⌘M"),
-        ("Open Settings", "⌘,"),
-        ("Quit CapsStack", "⌘Q")
+        (CapsStackText.resolve(.openHistory), "⌘O"),
+        (CapsStackText.resolve(.openAwayMemo), "⇧⌘M"),
+        (CapsStackText.resolve(.openSettings), "⌘,"),
+        (CapsStackText.resolve(.quitCapsStack), "⌘Q")
     ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            SettingsHeader(title: "Keyboard shortcuts", message: "Shortcuts available while the app is active.")
+            SettingsHeader(title: CapsStackText.resolve(.keyboardShortcuts), message: CapsStackText.resolve(.shortcutsAvailable))
 
             VStack(spacing: 0) {
                 ForEach(Array(shortcuts.enumerated()), id: \.offset) { index, shortcut in
@@ -850,40 +859,40 @@ private struct DataManagementSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             SettingsHeader(
-                title: "Data management",
-                message: "History and away memos are managed only on this Mac."
+                title: CapsStackText.resolve(.dataManagement),
+                message: CapsStackText.resolve(.historyOnlyThisMac)
             )
 
             dataRow(
-                title: "History folder",
+                title: CapsStackText.resolve(.historyFolder),
                 subtitle: controller.historyDirectoryURL.path,
-                buttonTitle: "Show",
+                buttonTitle: CapsStackText.resolve(.show),
                 action: controller.revealHistoryFolder
             )
 
             dataRow(
-                title: "Copy history path",
-                subtitle: "Copy the folder location to the clipboard.",
-                buttonTitle: "Copy",
+                title: CapsStackText.resolve(.copyHistoryPath),
+                subtitle: CapsStackText.resolve(.copyFolderLocation),
+                buttonTitle: CapsStackText.resolve(.copy),
                 action: copyPath
             )
 
             dataRow(
-                title: "Delete all history",
-                subtitle: "Delete summary history and retry data from failed runs.",
-                buttonTitle: "Delete",
+                title: CapsStackText.resolve(.deleteAllHistory),
+                subtitle: CapsStackText.resolve(.deleteHistoryDescription),
+                buttonTitle: CapsStackText.resolve(.delete),
                 destructive: true,
                 action: { showsClearConfirmation = true }
             )
 
             dataRow(
-                title: "Delete away memo",
-                subtitle: "Clear the memo saved for the next away interval.",
-                buttonTitle: "Delete",
+                title: CapsStackText.resolve(.deleteAwayMemo),
+                subtitle: CapsStackText.resolve(.clearAwayMemoDescription),
+                buttonTitle: CapsStackText.resolve(.delete),
                 destructive: true,
                 action: {
                     controller.clearQuickMemo()
-                    message = "Away memo deleted"
+                    message = CapsStackText.resolve(.awayMemoDeleted)
                 }
             )
 
@@ -898,7 +907,7 @@ private struct DataManagementSettingsView: View {
     private func copyPath() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(controller.historyDirectoryURL.path, forType: .string)
-        message = "Path copied"
+        message = CapsStackText.resolve(.pathCopied)
     }
 
     private func dataRow(
@@ -957,7 +966,7 @@ private struct AdvancedSummarizerSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            SettingsHeader(title: "Advanced", message: "Configure each CLI's executable, model, and reasoning level. Supported CLIs can load their model list.")
+            SettingsHeader(title: CapsStackText.resolve(.advanced), message: CapsStackText.resolve(.advancedDescription))
 
             ExecutableRow(
                 kind: .codex,
@@ -1056,19 +1065,19 @@ private struct ExecutableRow: View {
                     }
                 } label: {
                     if controller.testingProvider == kind {
-                        Label("Cancel", systemImage: "xmark")
+                        Label(CapsStackText.resource(.cancel), systemImage: "xmark")
                     } else {
-                        Text("Test")
+                        Text(CapsStackText.resource(.test))
                     }
                 }
                 .disabled(controller.testingProvider != nil && controller.testingProvider != kind)
                 .accessibilityLabel(
                     controller.testingProvider == kind
-                        ? "Cancel \(kind.displayName) connection test"
-                        : "Test \(kind.displayName) connection"
+                        ? CapsStackText.format(.cancelConnectionTest, kind.displayName)
+                        : CapsStackText.format(.testConnection, kind.displayName)
                 )
 
-                Button(isExpanded ? "Close" : "Details") {
+                Button(CapsStackText.resource(isExpanded ? .close : .details)) {
                     withAnimation(.easeOut(duration: 0.18)) { isExpanded.toggle() }
                 }
                 .buttonStyle(.borderless)
@@ -1076,7 +1085,7 @@ private struct ExecutableRow: View {
 
             if isExpanded {
                 Divider()
-                TextField("Executable path (leave blank to detect automatically)", text: $path)
+                TextField(CapsStackText.resolve(.executablePath), text: $path)
                     .textFieldStyle(.roundedBorder)
                 ModelSelectionControl(
                     kind: kind,
@@ -1106,18 +1115,20 @@ private struct ExecutableRow: View {
     }
 
     private var statusText: String {
-        guard let status = controller.cliStatuses[kind] else { return "Checking…" }
+        guard let status = controller.cliStatuses[kind] else { return CapsStackText.resolve(.checking) }
         if status.isInstalled {
-            return status.version ?? status.executablePath ?? "Detected"
+            return status.version ?? status.executablePath ?? CapsStackText.resolve(.detected)
         }
-        return "Not detected"
+        return CapsStackText.resolve(.notDetected)
     }
 
     private func testMessageColor(_ message: String) -> Color {
-        switch message {
-        case "Success": BrandPalette.BriefTheme.signal
-        case "Checking…", "Cancelled": .secondary
-        default: .red
+        if message == CapsStackText.resolve(.success) {
+            return BrandPalette.BriefTheme.signal
         }
+        if message == CapsStackText.resolve(.checking) || message == CapsStackText.resolve(.cancelled) {
+            return .secondary
+        }
+        return .red
     }
 }

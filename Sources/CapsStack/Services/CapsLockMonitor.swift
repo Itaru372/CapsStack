@@ -1,6 +1,7 @@
 @preconcurrency import ApplicationServices
 @preconcurrency import CoreFoundation
 @preconcurrency import CoreGraphics
+import CapsStackLocalization
 import Foundation
 
 /// Polls the system Caps Lock flag without installing a global key event tap. This avoids
@@ -242,7 +243,7 @@ final class CapsLockMonitor: @unchecked Sendable {
         let trusted = AXIsProcessTrusted()
         if !trusted {
             lock.lock()
-            storedSuppressionError = "Accessibility permission is required. Allow CapsStack in System Settings > Privacy & Security > Accessibility."
+            storedSuppressionError = CapsStackText.resolve(.accessibilityPermissionMessage)
             suppressionActive = false
             lock.unlock()
             // Prompt system dialog (will show if we try to create tap, but also explicit)
@@ -265,7 +266,7 @@ final class CapsLockMonitor: @unchecked Sendable {
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
             lock.lock()
-            storedSuppressionError = "Could not start monitoring Caps Lock. Check your Accessibility permission."
+            storedSuppressionError = CapsStackText.resolve(.capsLockMonitoringFailed)
             suppressionActive = false
             lock.unlock()
             return false
@@ -298,7 +299,7 @@ final class CapsLockMonitor: @unchecked Sendable {
             CFMachPortInvalidate(tap)
             lock.lock()
             eventTap = nil
-            storedSuppressionError = "Could not register the keyboard event tap."
+            storedSuppressionError = CapsStackText.resolve(.eventTapRegistrationFailed)
             suppressionActive = false
             lock.unlock()
             return false

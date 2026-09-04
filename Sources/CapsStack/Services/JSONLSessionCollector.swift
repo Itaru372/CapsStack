@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 final class JSONLSessionCollector: SessionCollector {
@@ -39,7 +40,7 @@ final class JSONLSessionCollector: SessionCollector {
                 sessions: [],
                 issues: [CollectionIssue(
                     provider: provider,
-                    message: "Log directory not found: \(rootDirectory.path)"
+                    message: CapsStackText.format(.logDirectoryNotFound, rootDirectory.path)
                 )]
             )
         }
@@ -49,7 +50,7 @@ final class JSONLSessionCollector: SessionCollector {
                 sessions: [],
                 issues: [CollectionIssue(
                     provider: provider,
-                    message: "Could not read log directory: \(rootDirectory.path)"
+                    message: CapsStackText.format(.logDirectoryReadFailed, rootDirectory.path)
                 )]
             )
         }
@@ -70,7 +71,7 @@ final class JSONLSessionCollector: SessionCollector {
             filesToRead = Array(filesToRead.prefix(maxFiles))
             issues.append(CollectionIssue(
                 provider: provider,
-                message: "There are too many log files to inspect; only the latest \(maxFiles) were read."
+                message: CapsStackText.format(.tooManyLogFiles, maxFiles)
             ))
         }
 
@@ -82,7 +83,11 @@ final class JSONLSessionCollector: SessionCollector {
                 if read.wasTruncated {
                     issues.append(CollectionIssue(
                         provider: provider,
-                        message: "Large log was limited to the last \(maxFileBytes / 1024 / 1024) MB: \(file.lastPathComponent)"
+                        message: CapsStackText.format(
+                            .largeLogLimited,
+                            maxFileBytes / 1024 / 1024,
+                            file.lastPathComponent
+                        )
                     ))
                 }
                 var invalidLines = 0
@@ -161,19 +166,31 @@ final class JSONLSessionCollector: SessionCollector {
                 if invalidLines > 0 {
                     issues.append(CollectionIssue(
                         provider: provider,
-                        message: "Skipped \(invalidLines) invalid JSONL lines in \(file.lastPathComponent)."
+                        message: CapsStackText.format(
+                            .invalidJSONLinesSkipped,
+                            invalidLines,
+                            file.lastPathComponent
+                        )
                     ))
                 }
                 if oversizedLines > 0 {
                     issues.append(CollectionIssue(
                         provider: provider,
-                        message: "Skipped \(oversizedLines) oversized lines in \(file.lastPathComponent)."
+                        message: CapsStackText.format(
+                            .oversizedLinesSkipped,
+                            oversizedLines,
+                            file.lastPathComponent
+                        )
                     ))
                 }
             } catch {
                 issues.append(CollectionIssue(
                     provider: provider,
-                    message: "Could not read log (\(file.lastPathComponent)): \(error.localizedDescription)"
+                    message: CapsStackText.format(
+                        .logReadFailed,
+                        file.lastPathComponent,
+                        error.localizedDescription
+                    )
                 ))
             }
         }

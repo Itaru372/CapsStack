@@ -1,4 +1,6 @@
+import CapsStackLocalization
 import Foundation
+import Yams
 
 /// Reads GitHub Copilot CLI's local session-state archive without invoking or resuming Copilot.
 /// Each UUID directory is one session and contains `events.jsonl` plus optional workspace metadata.
@@ -29,7 +31,7 @@ final class GitHubCopilotSessionCollector: SessionCollector {
                 sessions: [],
                 issues: [CollectionIssue(
                     provider: provider,
-                    message: "Could not read the GitHub Copilot session directory: \(rootDirectory.path)"
+                    message: CapsStackText.format(.copilotDirectoryReadFailed, rootDirectory.path)
                 )]
             )
         }
@@ -46,7 +48,7 @@ final class GitHubCopilotSessionCollector: SessionCollector {
         if candidates.count > selected.count {
             issues.append(CollectionIssue(
                 provider: provider,
-                message: "There are too many sessions to inspect; only the latest \(maxSessions) were checked."
+                message: CapsStackText.format(.tooManySessions, maxSessions)
             ))
         }
 
@@ -86,13 +88,12 @@ final class GitHubCopilotSessionCollector: SessionCollector {
     private func workspaceDirectory(in sessionDirectory: URL) -> String? {
         let url = sessionDirectory.appendingPathComponent("workspace.yaml")
         guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        for line in text.split(whereSeparator: \.isNewline) {
-            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-            guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces) == "cwd" else { continue }
-            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-            return value.isEmpty ? nil : value
-        }
-        return nil
+        let workspace = try? YAMLDecoder().decode(CopilotWorkspace.self, from: text)
+        let directory = workspace?.cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return directory?.isEmpty == false ? directory : nil
     }
+}
+
+private struct CopilotWorkspace: Decodable {
+    let cwd: String?
 }

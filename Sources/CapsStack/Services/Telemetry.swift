@@ -5,9 +5,12 @@ import PostHog
 ///
 /// This type intentionally stores only aggregate values or enums. Session content, quick memos,
 /// paths, session IDs, model IDs, and raw error messages never enter the telemetry layer.
+/// New activation events use stable snake_case names; the existing human-readable event names
+/// remain unchanged so historical PostHog funnels do not split.
 enum TelemetryEvent: Equatable, Sendable {
     case applicationStarted
     case telemetryEnabled
+    case setupCompleted(collectorCount: Int, summarizer: CLIKind)
     case briefRequested(awayDuration: TimeInterval, sourceCount: Int, memoPresent: Bool)
     case briefCompleted(
         provider: CLIKind,
@@ -35,11 +38,19 @@ enum TelemetryEvent: Equatable, Sendable {
     )
     case providerTested(provider: CLIKind, succeeded: Bool)
     case briefConsumed(action: TelemetryConsumptionAction, status: HistoryStatus)
+    case firstReturnBriefCompleted(
+        provider: CLIKind,
+        fallbackUsed: Bool,
+        awayDuration: TimeInterval,
+        summaryDuration: TimeInterval
+    )
+    case briefFeedbackSubmitted(reason: TelemetryFeedbackReason)
 
     var name: String {
         switch self {
         case .applicationStarted: "app launched"
         case .telemetryEnabled: "telemetry enabled"
+        case .setupCompleted: "setup_completed"
         case .briefRequested: "return brief requested"
         case .briefCompleted: "return brief completed"
         case .briefEmpty: "return brief empty"
@@ -49,6 +60,8 @@ enum TelemetryEvent: Equatable, Sendable {
         case .summaryRetryFailed: "summary retry failed"
         case .providerTested: "provider connection tested"
         case .briefConsumed: "return brief consumed"
+        case .firstReturnBriefCompleted: "first_return_brief_completed"
+        case .briefFeedbackSubmitted: "brief_feedback_submitted"
         }
     }
 
@@ -57,6 +70,13 @@ enum TelemetryEvent: Equatable, Sendable {
         switch self {
         case .applicationStarted, .telemetryEnabled, .summaryRetryStarted:
             return [:]
+        case let .setupCompleted(collectorCount, summarizer):
+            return [
+                "collector_count_bucket": TelemetryBuckets.count(collectorCount),
+                "summarizer": summarizer.rawValue,
+                // This event is only emitted after the explicit opt-in succeeds.
+                "telemetry_enabled": true
+            ]
         case let .briefRequested(awayDuration, sourceCount, memoPresent):
             return [
                 "away_duration_bucket": TelemetryBuckets.awayDuration(awayDuration),
@@ -96,6 +116,18 @@ enum TelemetryEvent: Equatable, Sendable {
             return [
                 "action": action.rawValue,
                 "status": status.rawValue
+            ]
+        case let .firstReturnBriefCompleted(provider, fallbackUsed, awayDuration, summaryDuration):
+            return [
+                "provider": provider.rawValue,
+                "fallback_used": fallbackUsed,
+                "away_duration_bucket": TelemetryBuckets.awayDuration(awayDuration),
+                "summary_duration_bucket": TelemetryBuckets.summaryDuration(summaryDuration)
+            ]
+        case let .briefFeedbackSubmitted(reason):
+            return [
+                "rating_reason": reason.rawValue,
+                "status": HistoryStatus.completed.rawValue
             ]
         }
     }
@@ -160,6 +192,14 @@ enum TelemetryConsumptionAction: String, Equatable, Sendable {
     case viewed
     case copied
     case exported
+}
+
+/// Fixed, one-click reasons keep the quality signal useful without accepting free-form text.
+enum TelemetryFeedbackReason: String, CaseIterable, Equatable, Hashable, Sendable {
+    case helpful
+    case missingImportantContext = "missing_important_context"
+    case tooVerbose = "too_verbose"
+    case incorrectOrMisleading = "incorrect_or_misleading"
 }
 
 /// The SDK supports a richer range of data, but CapsStack deliberately uses coarse buckets so

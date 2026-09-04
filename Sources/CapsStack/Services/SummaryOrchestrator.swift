@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 /// Coordinates provider selection, input-size limiting, and fallback. A provider failure never
@@ -25,13 +26,6 @@ struct SummaryOrchestrator {
             .githubCopilot: SafeHeadlessSummaryProvider(
                 kind: .githubCopilot,
                 strategy: .githubCopilot,
-                resolver: resolver,
-                runner: runner,
-                timeout: timeout
-            ),
-            .kiloCode: SafeHeadlessSummaryProvider(
-                kind: .kiloCode,
-                strategy: .kiloCode,
                 resolver: resolver,
                 runner: runner,
                 timeout: timeout
@@ -235,7 +229,7 @@ struct SummaryOrchestrator {
             }
         }
         let omissionNotice = omittedChunkCount > 0
-            ? "The input limit omitted \(omittedChunkCount) intermediate summary chunks."
+            ? CapsStackText.format(.inputChunksOmitted, omittedChunkCount)
             : nil
         var integrationIssues = boundedIssues(batch.issues)
         if let omissionNotice {
@@ -272,7 +266,7 @@ struct SummaryOrchestrator {
         }
 
         let integrationOmissionNotice = omittedProjectCount > 0
-            ? "The combined input limit omitted part of the project summaries."
+            ? CapsStackText.resolve(.projectSummariesOmitted)
             : nil
         if let integrationOmissionNotice {
             integrationIssues.append(CollectionIssue(provider: kind, message: integrationOmissionNotice))
@@ -417,7 +411,7 @@ struct SummaryOrchestrator {
         if result.count < issues.count, let provider = issues.first?.provider {
             result.append(CollectionIssue(
                 provider: provider,
-                message: "Omitted \(issues.count - result.count) additional collection warnings."
+                message: CapsStackText.format(.additionalCollectionWarnings, issues.count - result.count)
             ))
         }
         return result

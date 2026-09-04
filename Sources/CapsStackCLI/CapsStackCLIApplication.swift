@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 struct CLIResult: Equatable {
@@ -28,6 +29,7 @@ struct CapsStackCLIApplication {
     let memo: CLIMemoStore
     let environment: [String: String]
     let version: String
+    let locale: Locale
     let readStandardInput: () throws -> String
 
     init(
@@ -35,6 +37,7 @@ struct CapsStackCLIApplication {
         memo: CLIMemoStore = CLIMemoStore(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         version: String = CapsStackCLIApplication.detectedVersion,
+        locale: Locale = .current,
         readStandardInput: @escaping () throws -> String = {
             String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
         }
@@ -43,6 +46,7 @@ struct CapsStackCLIApplication {
         self.memo = memo
         self.environment = environment
         self.version = version
+        self.locale = locale
         self.readStandardInput = readStandardInput
     }
 
@@ -51,7 +55,11 @@ struct CapsStackCLIApplication {
         do {
             command = try CLIArgumentParser.parse(arguments)
         } catch {
-            return CLIResult(exitCode: 2, stdout: "", stderr: diagnostic(error) + "\n\n" + Self.helpText)
+            return CLIResult(
+                exitCode: 2,
+                stdout: "",
+                stderr: diagnostic(error) + "\n\n" + Self.helpText(locale: locale)
+            )
         }
 
         do {
@@ -64,7 +72,7 @@ struct CapsStackCLIApplication {
     private func execute(_ command: CLICommand) throws -> CLIResult {
         switch command {
         case .help:
-            return .success(Self.helpText)
+            return .success(Self.helpText(locale: locale))
         case .version:
             return .success("capsstack \(version)")
         case .status(let json):
@@ -75,11 +83,24 @@ struct CapsStackCLIApplication {
             )
             if json { return .success(try CLIFormatting.json(report)) }
             var lines = [
-                "CapsStack status",
-                "History: \(report.historyPath)",
-                "History file: \(report.historyExists ? "present" : "missing") / \(report.historyCount) entries",
-                "Away memo: \(report.hasMemo ? "present" : "none")",
-                "Agent CLIs:"
+                CapsStackText.resolve(.cliStatus, locale: locale),
+                CapsStackText.format(.historyPath, report.historyPath, locale: locale),
+                CapsStackText.format(
+                    .historyFileStatus,
+                    report.historyExists
+                        ? CapsStackText.resolve(.historyFilePresent, locale: locale)
+                        : CapsStackText.resolve(.historyFileMissing, locale: locale),
+                    report.historyCount,
+                    locale: locale
+                ),
+                CapsStackText.format(
+                    .awayMemoStatus,
+                    report.hasMemo
+                        ? CapsStackText.resolve(.awayMemoPresent, locale: locale)
+                        : CapsStackText.resolve(.awayMemoNone, locale: locale),
+                    locale: locale
+                ),
+                CapsStackText.resolve(.agentCLIs, locale: locale)
             ]
             lines.append(contentsOf: report.agents.map {
                 "  \($0.isAvailable ? "✓" : "-") \($0.executable)\($0.path.map { "  \($0)" } ?? "")"
@@ -89,7 +110,11 @@ struct CapsStackCLIApplication {
             let entries = try history.load()
             let selected = limit.map { Array(entries.prefix($0)) } ?? entries
             if json { return .success(try CLIFormatting.json(selected)) }
-            return .success(selected.isEmpty ? "No history yet." : selected.map(CLIFormatting.listLine).joined(separator: "\n"))
+            return .success(
+                selected.isEmpty
+                    ? CapsStackText.resolve(.noHistoryYetPeriod, locale: locale)
+                    : selected.map { CLIFormatting.listLine($0, locale: locale) }.joined(separator: "\n")
+            )
         case .historyLatest(let mode):
             return try render(history.latest(), mode: mode)
         case .historyShow(let id, let mode):
@@ -108,45 +133,53 @@ struct CapsStackCLIApplication {
 
     private func render(_ entry: CLIHistoryEntry, mode: CLIOutputMode) throws -> CLIResult {
         switch mode {
-        case .human: return .success(CLIFormatting.human(entry))
+        case .human: return .success(CLIFormatting.human(entry, locale: locale))
         case .json: return .success(try CLIFormatting.json(entry))
-        case .markdown: return .success(CLIFormatting.markdown(entry))
+        case .markdown: return .success(CLIFormatting.markdown(entry, locale: locale))
         }
     }
 
     private func renderMemo(_ value: String?, json: Bool, cleared: Bool = false) throws -> CLIResult {
         if json { return .success(try CLIFormatting.json(CLIMemoResponse(memo: value))) }
         if let value { return .success(value) }
-        return .success(cleared ? "Away memo cleared." : "No away memo.")
+        return .success(
+            cleared
+                ? CapsStackText.resolve(.awayMemoCleared, locale: locale)
+                : CapsStackText.resolve(.noAwayMemo, locale: locale)
+        )
     }
 
     private func diagnostic(_ error: Error) -> String {
         if let localized = error as? LocalizedError, let description = localized.errorDescription {
-            return "error: \(description)"
+            return CapsStackText.format(.errorPrefix, description, locale: locale)
         }
-        return "error: \(error.localizedDescription)"
+        return CapsStackText.format(.errorPrefix, error.localizedDescription, locale: locale)
     }
 
     static var detectedVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0"
     }
 
-    static let helpText = """
-    CapsStack CLI
+    static var helpText: String { helpText(locale: .current) }
 
-    Usage:
-      capsstack help
-      capsstack version
-      capsstack status [--json]
-      capsstack history list [--limit N] [--json]
-      capsstack history latest [--json|--markdown]
-      capsstack history show <UUID> [--json|--markdown]
-      capsstack memo get [--json]
-      capsstack memo set <text> [--json]
-      capsstack memo set --stdin [--json]
-      capsstack memo clear [--json]
+    static func helpText(locale: Locale = .current) -> String {
+        """
+        CapsStack CLI
 
-    Aliases:
-      capsstack --help, capsstack -h, capsstack --version, capsstack -V
-    """
+        \(CapsStackText.resolve(.cliUsage, locale: locale))
+          capsstack help
+          capsstack version
+          capsstack status [--json]
+          capsstack history list [--limit N] [--json]
+          capsstack history latest [--json|--markdown]
+          capsstack history show <UUID> [--json|--markdown]
+          capsstack memo get [--json]
+          capsstack memo set <text> [--json]
+          capsstack memo set --stdin [--json]
+          capsstack memo clear [--json]
+
+        \(CapsStackText.resolve(.cliAliases, locale: locale))
+          capsstack --help, capsstack -h, capsstack --version, capsstack -V
+        """
+    }
 }

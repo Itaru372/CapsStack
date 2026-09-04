@@ -44,6 +44,9 @@ enum PreferenceKeys {
     static let quickMemo = "quickMemo"
     static let telemetryEnabled = "telemetryEnabled"
     static let setupCompleted = "setupCompleted"
+    /// One-time local markers for activation events. These values are never sent as telemetry.
+    static let telemetrySetupCompletedRecorded = "telemetrySetupCompletedRecorded"
+    static let telemetryFirstReturnBriefRecorded = "telemetryFirstReturnBriefRecorded"
     /// Stores the version of the one-time CLI auto-configuration performed by AppController.
     ///
     /// This is intentionally persisted separately from the registered defaults. Registered
@@ -75,7 +78,9 @@ private enum PreferenceDefaults {
             PreferenceKeys.minimumAwayDuration: 0,
             PreferenceKeys.setupCompleted: false,
             // Product analytics is an explicit opt-in and remains disabled by default.
-            PreferenceKeys.telemetryEnabled: false
+            PreferenceKeys.telemetryEnabled: false,
+            PreferenceKeys.telemetrySetupCompletedRecorded: false,
+            PreferenceKeys.telemetryFirstReturnBriefRecorded: false
         ])
     }
 }

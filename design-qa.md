@@ -20,6 +20,8 @@ final result: passed
   workflow is running.
 - The large 復帰ブリーフ heading is followed by compact 進捗 / 決定 / 次の一手 sections.
 - Supplemental current-state, blocker, memo, collection-issue, creation-time, model, fallback, and character-count data remain available without inventing per-section CLI timing that the summary model does not provide.
+- Empty intervals now use a compact explanatory card instead of leaving a large ambiguous void. Collection diagnostics are collapsed by default with a visible issue count, so recovery information remains available without outranking the return brief.
+- Day cards use a wider content measure, improving scanability of session counts and durations while preserving the horizontal timeline.
 
 ### Settings
 
@@ -32,6 +34,7 @@ final result: passed
 - Summary assignment, automatic fallback, general feature/background/accessibility controls, notification authorization/system-settings handoff, built-in shortcuts, local-data management, executable overrides, model overrides, reasoning overrides, and provider tests remain functional.
 - Anonymous telemetry is no longer a persistent settings toggle; consent is presented during initial setup.
 - General settings can reopen setup so collector, summarizer, and telemetry consent choices remain revisable.
+- The settings window enforces a practical minimum height, keeping the complete data-management page and other long pages reachable even when macOS restores a previously small window.
 
 ### Setup
 
@@ -41,6 +44,7 @@ final result: passed
 - The final section explains the Caps Lock ON/OFF workflow before entering history.
 - Each step fits the default 1120×740 window without scrolling and uses Back/Next navigation instead of placing every setting on one page.
 - Detected collector and summarizer choices use uniform-height rows so their control frames remain visually aligned.
+- The selected summarizer uses a restrained signal wash and stroked outline instead of a heavy full-card accent fill.
 
 ### Native chrome
 
@@ -49,6 +53,7 @@ final result: passed
 - The menu-bar extra uses SwiftUI's standard `.menu` style and system menu items instead of a custom fixed-width popover.
 - The standard menu contains the current state, 退席を開始 / 今すぐ復帰, 退席前メモ..., 履歴を開く ⌘O, 設定... ⌘,, and CapsStackを終了 ⌘Q.
 - 退席前メモ... opens a small dedicated editor because native menu items do not support an embedded text editor. It is also available from the 設定 menu and with ⇧⌘M.
+- The memo editor now shares the history/settings dark surface, includes a useful empty prompt, and makes its on-device auto-save behavior visible.
 
 ## Demo data
 

@@ -1,4 +1,5 @@
 import AppKit
+import CapsStackLocalization
 import SwiftUI
 
 @MainActor
@@ -32,7 +33,7 @@ struct CapsStackApp: App {
     @AppStorage(PreferenceKeys.setupCompleted) private var setupCompleted = false
 
     var body: some Scene {
-        WindowGroup("CapsStack History", id: "history") {
+        WindowGroup(CapsStackText.resource(.historyWindow), id: "history") {
             Group {
                 if setupCompleted {
                     HistoryView(controller: controller)
@@ -52,14 +53,14 @@ struct CapsStackApp: App {
                 .task { controller.start() }
         } label: {
             BrandMenuBarIcon(indicatorColor: controller.phase.menuBarIndicatorColor)
-                .accessibilityLabel("CapsStack — \(controller.stateTitle)")
+                .accessibilityLabel(CapsStackText.format(.capsStackStatus, controller.stateTitle))
         }
         .menuBarExtraStyle(.menu)
         .commands {
             CapsStackCommands(controller: controller)
         }
 
-        Window("Away Memo", id: "quick-memo") {
+        Window(CapsStackText.resource(.awayMemoWindow), id: "quick-memo") {
             QuickMemoView()
         }
         .windowResizability(.contentSize)
@@ -80,8 +81,8 @@ private struct CapsStackCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
-        CommandMenu("History") {
-            Button("Open History") {
+        CommandMenu(CapsStackText.resource(.history)) {
+            Button(CapsStackText.resource(.openHistory)) {
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "history")
             }
@@ -89,14 +90,14 @@ private struct CapsStackCommands: Commands {
 
             Divider()
 
-            Button("Reload") {
+            Button(CapsStackText.resource(.reload)) {
                 controller.reloadHistory()
             }
             .keyboardShortcut("r", modifiers: [.command])
         }
 
-        CommandMenu("Settings") {
-            Button("Away Memo…") {
+        CommandMenu(CapsStackText.resource(.settings)) {
+            Button(CapsStackText.resource(.awayMemoEllipsis)) {
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "quick-memo")
             }
@@ -104,7 +105,7 @@ private struct CapsStackCommands: Commands {
 
             Divider()
 
-            Button("Settings…") {
+            Button(CapsStackText.resource(.settingsEllipsis)) {
                 NSApp.activate(ignoringOtherApps: true)
                 openSettings()
             }

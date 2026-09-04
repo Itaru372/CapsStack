@@ -1,4 +1,5 @@
 import AppKit
+import CapsStackLocalization
 import SwiftUI
 
 /// The contents deliberately use only native menu controls. Keeping this view free of
@@ -11,21 +12,21 @@ struct MenuBarView: View {
     @AppStorage(PreferenceKeys.quickMemo) private var quickMemoText = ""
 
     private var statusActionTitle: String {
-        controller.phase == .away ? "Return now" : "Step away"
+        CapsStackText.resolve(controller.phase == .away ? .returnNow : .stepAway)
     }
 
     private var quickMemoTitle: String {
         QuickMemoPreferences(text: quickMemoText).trimmedText == nil
-            ? "Away memo…"
-            : "Edit away memo…"
+            ? CapsStackText.resolve(.awayMemoEllipsis)
+            : CapsStackText.resolve(.editAwayMemoEllipsis)
     }
 
     private var notice: String? {
         if !controller.isCapsStackEnabled {
-            return "Enable CapsStack in Settings"
+            return CapsStackText.resolve(.enableCapsStack)
         }
         if controller.phase == .failed {
-            return "Review the details in History"
+            return CapsStackText.resolve(.reviewHistoryDetails)
         }
         return nil
     }
@@ -36,7 +37,7 @@ struct MenuBarView: View {
         } icon: {
             Image(systemName: controller.phase.menuSystemImage)
         }
-        .accessibilityLabel("CapsStack status: \(controller.stateTitle)")
+        .accessibilityLabel(CapsStackText.format(.capsStackStatus, controller.stateTitle))
 
         if let notice {
             Text(notice)
@@ -65,12 +66,12 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button("Open History") {
+        Button(CapsStackText.resource(.openHistory)) {
             activateAndOpenWindow(id: "history")
         }
         .keyboardShortcut("o", modifiers: [.command])
 
-        Button("Settings…") {
+        Button(CapsStackText.resource(.settingsEllipsis)) {
             NSApp.activate(ignoringOtherApps: true)
             openSettings()
         }
@@ -78,7 +79,7 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button("Quit CapsStack") {
+        Button(CapsStackText.resource(.quitCapsStack)) {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: [.command])

@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import XCTest
 @testable import CapsStack
 
@@ -29,13 +30,42 @@ final class ModelTests: XCTestCase {
             quickMemo: "復帰後に確認する"
         )
 
-        let markdown = SummaryMarkdown.document(for: entry)
+        let markdown = SummaryMarkdown.document(for: entry, locale: Locale(identifier: "en"))
 
         XCTAssertTrue(markdown.contains("Status**: Pending summary"))
         XCTAssertTrue(markdown.contains("Sources**: Codex, Claude Code"))
         XCTAssertTrue(markdown.contains("要約CLIがタイムアウトしました。"))
         XCTAssertTrue(markdown.contains("Away memo**: 復帰後に確認する"))
         XCTAssertTrue(markdown.contains("Claude Code: ログディレクトリがありません"))
+    }
+
+    func testSummaryMarkdownUsesTheRequestedDisplayLanguage() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let entry = HistoryEntry(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(125)),
+            status: .completed,
+            summary: SummaryDocument(
+                overview: "進捗の概要",
+                progress: ["実装"],
+                currentState: [],
+                decisions: [],
+                blockers: [],
+                nextSteps: ["確認"],
+                sessions: []
+            ),
+            provider: .codex,
+            sessionCount: 1,
+            sources: [.codex]
+        )
+
+        let english = SummaryMarkdown.document(for: entry, locale: Locale(identifier: "en"))
+        XCTAssertTrue(english.contains("# CapsStack Summary"))
+        XCTAssertTrue(english.contains("## Progress"))
+
+        let japanese = SummaryMarkdown.document(for: entry, locale: Locale(identifier: "ja-JP"))
+        XCTAssertTrue(japanese.contains("# CapsStack 要約"))
+        XCTAssertTrue(japanese.contains("**所要時間**"))
+        XCTAssertTrue(japanese.contains("## 進捗"))
     }
 
     func testBrandAssetsArePackaged() {
@@ -101,7 +131,8 @@ final class ModelTests: XCTestCase {
                 directoryURL: FileManager.default.temporaryDirectory
                     .appendingPathComponent(suiteName, isDirectory: true)
             ),
-            notifications: EmptyNotificationService()
+            notifications: EmptyNotificationService(),
+            locale: Locale(identifier: "en")
         )
 
         XCTAssertTrue(controller.isCapsStackEnabled)
@@ -128,7 +159,8 @@ final class ModelTests: XCTestCase {
                 directoryURL: FileManager.default.temporaryDirectory
                     .appendingPathComponent(suiteName, isDirectory: true)
             ),
-            notifications: EmptyNotificationService()
+            notifications: EmptyNotificationService(),
+            locale: Locale(identifier: "en")
         )
 
         controller.startProviderTest(.codex)
@@ -197,12 +229,15 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(changeCount, 0)
     }
 
-    func testCollectorOnlyAgentCannotBecomePrimarySummarizer() throws {
+    func testCollectorOnlyAgentsCannotBecomePrimarySummarizer() throws {
         let suiteName = "CapsStackCollectorOnlyPrimaryTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set(CLIKind.geminiCLI.rawValue, forKey: PreferenceKeys.primarySummarizer)
 
+        defaults.set(CLIKind.kiloCode.rawValue, forKey: PreferenceKeys.primarySummarizer)
+        XCTAssertEqual(SummarizerPreferences(defaults: defaults).primary, .codex)
+
+        defaults.set(CLIKind.geminiCLI.rawValue, forKey: PreferenceKeys.primarySummarizer)
         XCTAssertEqual(SummarizerPreferences(defaults: defaults).primary, .codex)
     }
 

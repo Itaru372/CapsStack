@@ -1,4 +1,5 @@
 import Foundation
+import CapsStackLocalization
 import XCTest
 @testable import CapsStackCLI
 
@@ -35,7 +36,7 @@ final class HistoryAndFormattingTests: XCTestCase {
     }
 
     func testMarkdownMatchesAppSectionMeaning() {
-        let markdown = CLIFormatting.markdown(makeEntry(offset: 0))
+        let markdown = CLIFormatting.markdown(makeEntry(offset: 0), locale: Locale(identifier: "en"))
         XCTAssertTrue(markdown.contains("# CapsStack Summary"))
         XCTAssertTrue(markdown.contains("## Progress"))
         XCTAssertTrue(markdown.contains("## Current state"))
@@ -56,7 +57,8 @@ final class HistoryAndFormattingTests: XCTestCase {
             history: fixture.repository,
             memo: CLIMemoStore(defaults: defaults, domainName: nil),
             environment: [:],
-            version: "test"
+            version: "test",
+            locale: Locale(identifier: "en")
         )
 
         let list = app.run(arguments: ["history", "list", "--limit", "1", "--json"])

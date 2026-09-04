@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 /// A provider receives a normalized collection artifact and returns only a structured summary.
@@ -177,7 +178,10 @@ final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .codex,
-                    Self.errorMessage(from: result, fallback: "Exit code \(result.terminationStatus)")
+                    Self.errorMessage(
+                        from: result,
+                        fallback: CapsStackText.format(.exitCode, result.terminationStatus)
+                    )
                 )
             }
             guard !result.didTruncateOutput else {
@@ -315,7 +319,10 @@ final class ClaudeCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .claudeCode,
-                    Self.errorMessage(from: result, fallback: "Exit code \(result.terminationStatus)")
+                    Self.errorMessage(
+                        from: result,
+                        fallback: CapsStackText.format(.exitCode, result.terminationStatus)
+                    )
                 )
             }
             guard !result.didTruncateOutput else {
@@ -416,7 +423,7 @@ final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
         guard executable.lastPathComponent != "opencode2" else {
             throw SummaryProviderError.processFailed(
                 .opencode,
-                "The OpenCode 2 CLI is not compatible with the current OpenCode 1 adapter."
+                CapsStackText.resolve(.openCode2Incompatible)
             )
         }
 
@@ -455,7 +462,10 @@ final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .opencode,
-                    Self.errorMessage(from: result, fallback: "Exit code \(result.terminationStatus)")
+                    Self.errorMessage(
+                        from: result,
+                        fallback: CapsStackText.format(.exitCode, result.terminationStatus)
+                    )
                 )
             }
             guard !result.didTruncateOutput else {
@@ -586,7 +596,10 @@ final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .pi,
-                    Self.errorMessage(from: result, fallback: "Exit code \(result.terminationStatus)")
+                    Self.errorMessage(
+                        from: result,
+                        fallback: CapsStackText.format(.exitCode, result.terminationStatus)
+                    )
                 )
             }
             guard !result.didTruncateOutput else {
@@ -637,7 +650,6 @@ final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
 final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
     enum Strategy: Sendable {
         case githubCopilot
-        case kiloCode
         case goose
         case qwenCode
     }
@@ -711,7 +723,7 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 let text = String(data: result.standardError, encoding: .utf8)
                     ?? String(data: result.standardOutput, encoding: .utf8)
-                    ?? "Exit code \(result.terminationStatus)"
+                    ?? CapsStackText.format(.exitCode, result.terminationStatus)
                 throw SummaryProviderError.processFailed(kind, String(text.prefix(1_000)))
             }
             guard !result.didTruncateOutput,
@@ -757,17 +769,6 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
                 "COPILOT_OTEL_FILE_EXPORTER_PATH": "",
                 "OTEL_EXPORTER_OTLP_ENDPOINT": "",
                 "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false"
-            ])
-        case .kiloCode:
-            var arguments = ["run", "--agent", "ask", "--format", "json"]
-            if let model, !model.isEmpty { arguments += ["--model", model] }
-            arguments.append(prompt)
-            return (arguments, [
-                // Kilo persists conversations in this database even for `run`; point it at a
-                // throw-away file so the source artifact never enters the user's session store.
-                // Keep the normal XDG data root so the CLI can still resolve its existing auth
-                // records; KILO_DB is the session-bearing boundary we need to isolate.
-                "KILO_DB": temporaryDirectory.appendingPathComponent("kilo.db").path
             ])
         case .goose:
             var arguments = [

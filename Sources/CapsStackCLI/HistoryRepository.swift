@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 enum CLIHistoryError: LocalizedError, Equatable {
@@ -8,11 +9,11 @@ enum CLIHistoryError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unreadable(let url):
-            "Could not read the CapsStack history file: \(url.path)"
+            CapsStackText.format(.historyUnreadable, url.path)
         case .entryNotFound(let id):
-            "History entry not found: \(id.uuidString)"
+            CapsStackText.format(.historyEntryNotFound, id.uuidString)
         case .noEntries:
-            "No history yet."
+            CapsStackText.resolve(.noHistoryYetPeriod)
         }
     }
 }

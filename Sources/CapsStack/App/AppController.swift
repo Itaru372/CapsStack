@@ -1,4 +1,5 @@
 import AppKit
+import CapsStackLocalization
 import Combine
 import Foundation
 
@@ -41,6 +42,10 @@ final class AppController: ObservableObject {
     private let historyStore: HistoryStore
     private let notifications: NotificationServicing
     private let telemetry: TelemetryClient
+    /// The display locale used for dynamic state and error text. SwiftUI-owned strings resolve
+    /// through the environment, while this controller needs an explicit locale for non-view work
+    /// and deterministic tests.
+    private let locale: Locale
     private var hasStarted = false
     private var sessionCountTask: Task<Void, Never>?
     /// The currently running collection/summary workflow, if any. Keeping one handle lets
@@ -50,12 +55,14 @@ final class AppController: ObservableObject {
     private var providerTestTask: Task<Void, Never>?
     private var providerTestGeneration: UInt = 0
     private var workflowGeneration: UInt = 0
+    /// Entry IDs are kept only for this process so one brief cannot submit repeated feedback.
+    private var feedbackRecordedEntryIDs: Set<UUID> = []
     private var isRefreshingCLIStatuses = false
     private var refreshingModelKinds: Set<CLIKind> = []
     private var backgroundActivity: NSObjectProtocol?
     private var defaultsObserver: NSObjectProtocol?
     private let showsInMemoryDemoData: Bool
-    private lazy var demoEntries = DemoHistoryContent.entries()
+    private lazy var demoEntries = DemoHistoryContent.entries(locale: locale)
 
     init(
         defaults: UserDefaults = .standard,
@@ -66,6 +73,7 @@ final class AppController: ObservableObject {
         historyStore: HistoryStore = HistoryStore(),
         notifications: NotificationServicing = NotificationService(),
         telemetry: TelemetryClient? = nil,
+        locale: Locale = .current,
         showsInMemoryDemoData: Bool = ProcessInfo.processInfo.arguments.contains("--capsstack-demo-data")
     ) {
         // Resolve CLI-specific defaults before any preference type registers its fallback domain.
@@ -81,6 +89,7 @@ final class AppController: ObservableObject {
         self.summarizer = SummaryOrchestrator(resolver: resolver, runner: runner)
         self.historyStore = historyStore
         self.notifications = notifications
+        self.locale = locale
         let telemetry = telemetry ?? PostHogTelemetryClient(defaults: defaults)
         self.telemetry = telemetry
         self.showsInMemoryDemoData = showsInMemoryDemoData
@@ -95,24 +104,24 @@ final class AppController: ObservableObject {
     }
 
     var stateTitle: String {
-        if !isCapsStackEnabled { return "Paused" }
+        if !isCapsStackEnabled { return CapsStackText.resolve(.paused, locale: locale) }
         switch phase {
-        case .idle: return "Ready"
-        case .away: return "Away"
-        case .summarizing: return "Summarizing progress"
-        case .failed: return "Summary failed"
-        case .disabled: return "Paused"
+        case .idle: return CapsStackText.resolve(.ready, locale: locale)
+        case .away: return CapsStackText.resolve(.away, locale: locale)
+        case .summarizing: return CapsStackText.resolve(.summarizingProgress, locale: locale)
+        case .failed: return CapsStackText.resolve(.summaryFailed, locale: locale)
+        case .disabled: return CapsStackText.resolve(.paused, locale: locale)
         }
     }
 
     var stateDetail: String {
-        if !isCapsStackEnabled { return "Enable CapsStack in Settings to resume monitoring" }
+        if !isCapsStackEnabled { return CapsStackText.resolve(.enableCapsStackResume, locale: locale) }
         switch phase {
-        case .idle: return "Turn Caps Lock on to start collecting"
-        case .away: return "Turn Caps Lock off to generate a summary"
-        case .summarizing: return "Collection and summarization run independently"
-        case .failed: return lastError ?? "Retry the summary from History"
-        case .disabled: return "Enable CapsStack in Settings to resume monitoring"
+        case .idle: return CapsStackText.resolve(.capsLockOnCollect, locale: locale)
+        case .away: return CapsStackText.resolve(.capsLockOffSummary, locale: locale)
+        case .summarizing: return CapsStackText.resolve(.collectionSummaryIndependent, locale: locale)
+        case .failed: return lastError ?? CapsStackText.resolve(.retrySummaryHistory, locale: locale)
+        case .disabled: return CapsStackText.resolve(.enableCapsStackResume, locale: locale)
         }
     }
 
@@ -199,8 +208,37 @@ final class AppController: ObservableObject {
         }
     }
 
+    /// Completes the setup flow and records its activation event only after explicit consent.
+    /// The local marker prevents reopening setup from producing duplicate activation events.
+    func completeSetup() {
+        let wasAlreadyCompleted = defaults.bool(forKey: PreferenceKeys.setupCompleted)
+        defaults.set(true, forKey: PreferenceKeys.setupCompleted)
+        guard !wasAlreadyCompleted,
+              isTelemetryEnabled,
+              !defaults.bool(forKey: PreferenceKeys.telemetrySetupCompletedRecorded)
+        else { return }
+        let summarizer = SummarizerPreferences(defaults: defaults).primary
+
+        telemetry.capture(.setupCompleted(
+            collectorCount: CollectorPreferences(defaults: defaults).enabledSources.count,
+            summarizer: summarizer
+        ))
+        defaults.set(true, forKey: PreferenceKeys.telemetrySetupCompletedRecorded)
+    }
+
     func recordHistoryAction(_ action: TelemetryConsumptionAction, for entry: HistoryEntry) {
         telemetry.capture(.briefConsumed(action: action, status: entry.status))
+    }
+
+    /// Records one structured quality response for a completed brief. The entry identifier is
+    /// used only in memory to keep repeated taps or view recreation from duplicating the event;
+    /// it never enters the telemetry payload.
+    @discardableResult
+    func recordBriefFeedback(_ reason: TelemetryFeedbackReason, for entry: HistoryEntry) -> Bool {
+        guard isTelemetryEnabled, entry.status == .completed else { return false }
+        guard feedbackRecordedEntryIDs.insert(entry.id).inserted else { return false }
+        telemetry.capture(.briefFeedbackSubmitted(reason: reason))
+        return true
     }
 
     func setSuppressOriginalCapsLock(_ enabled: Bool) {
@@ -431,7 +469,7 @@ final class AppController: ObservableObject {
         providerTestTask?.cancel()
         providerTestTask = nil
         if let kind = testingProvider {
-            providerTestMessages[kind] = "Cancelled"
+            providerTestMessages[kind] = CapsStackText.resolve(.cancelled, locale: locale)
         }
         testingProvider = nil
     }
@@ -446,7 +484,7 @@ final class AppController: ObservableObject {
         guard isCurrentProviderTest(generation) else { return }
         guard testingProvider == nil else { return }
         testingProvider = kind
-        providerTestMessages[kind] = "Checking…"
+        providerTestMessages[kind] = CapsStackText.resolve(.checking, locale: locale)
         defer {
             if isCurrentProviderTest(generation) {
                 testingProvider = nil
@@ -486,10 +524,10 @@ final class AppController: ObservableObject {
             )
             guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
             succeeded = true
-            providerTestMessages[kind] = "Success"
+            providerTestMessages[kind] = CapsStackText.resolve(.success, locale: locale)
         } catch {
             guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
-            providerTestMessages[kind] = "Failed: \(error.localizedDescription)"
+            providerTestMessages[kind] = CapsStackText.format(.providerTestFailed, error.localizedDescription, locale: locale)
         }
         guard !Task.isCancelled, isCurrentProviderTest(generation) else { return }
         telemetry.capture(.providerTested(provider: kind, succeeded: succeeded))
@@ -711,7 +749,7 @@ final class AppController: ObservableObject {
             )
             guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
             failureStage = .persistence
-            _ = try historyStore.saveCompleted(
+            let completedEntry = try historyStore.saveCompleted(
                 batch: batch,
                 outcome: outcome,
                 replacingPendingID: pendingEntry.pendingArtifactID
@@ -732,6 +770,7 @@ final class AppController: ObservableObject {
                     summaryDuration: summaryDuration
                 ))
             }
+            recordFirstReturnBriefCompleted(for: completedEntry, summaryDuration: summaryDuration)
             reloadHistory()
             phase = .idle
             lastError = nil
@@ -772,7 +811,7 @@ final class AppController: ObservableObject {
             do {
                 _ = try historyStore.replace(failed)
             } catch {
-                presentedErrorMessage += "\nCould not save retry data: \(error.localizedDescription)"
+                presentedErrorMessage += "\n" + CapsStackText.resolve(.couldNotSaveRetryData, locale: locale) + ": \(error.localizedDescription)"
             }
             reloadHistory()
             phase = .failed
@@ -788,10 +827,28 @@ final class AppController: ObservableObject {
             sessionCount: 0,
             sources: requestedSources.sorted { $0.rawValue < $1.rawValue },
             collectionIssues: batch.issues,
-            errorMessage: requestedSources.isEmpty ? "No collection sources are selected." : nil
+            errorMessage: requestedSources.isEmpty ? CapsStackText.resolve(.noCollectionSources, locale: locale) : nil
         )
         _ = try historyStore.save(entry)
         reloadHistory()
+    }
+
+    /// Called only after `HistoryStore.saveCompleted` succeeds, so activation never counts an
+    /// in-memory or pending result as a successful brief.
+    func recordFirstReturnBriefCompleted(for entry: HistoryEntry, summaryDuration: TimeInterval) {
+        guard isTelemetryEnabled,
+              entry.status == .completed,
+              let provider = entry.provider,
+              !defaults.bool(forKey: PreferenceKeys.telemetryFirstReturnBriefRecorded)
+        else { return }
+
+        telemetry.capture(.firstReturnBriefCompleted(
+            provider: provider,
+            fallbackUsed: entry.fallbackUsed,
+            awayDuration: entry.interval.duration,
+            summaryDuration: summaryDuration
+        ))
+        defaults.set(true, forKey: PreferenceKeys.telemetryFirstReturnBriefRecorded)
     }
 
     /// Starts a new serialized collection/summary workflow and invalidates any older one. The

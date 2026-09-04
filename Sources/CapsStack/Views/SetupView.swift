@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import SwiftUI
 
 struct SetupView: View {
@@ -54,11 +55,11 @@ struct SetupView: View {
             BrandAppIcon(size: 58)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Come back caught up.\nKnow your next move.")
+                Text(CapsStackText.resource(.setupIntroduction))
                     .font(.system(size: 32, weight: .bold, design: .serif))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("Use Caps Lock as your away switch and build a return brief from local work history.")
+                Text(CapsStackText.resource(.setupDescription))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -72,7 +73,7 @@ struct SetupView: View {
 
             Spacer(minLength: 24)
 
-            Label("Session content and memos are processed only on this Mac.", systemImage: "lock.shield")
+            Label(CapsStackText.resource(.localProcessing), systemImage: "lock.shield")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -84,9 +85,14 @@ struct SetupView: View {
 
     private var setupHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Setup")
+            Text(CapsStackText.resource(.setup))
                 .font(.system(size: 28, weight: .bold, design: .serif))
-            Text("Step \(currentStep.rawValue + 1) of \(SetupStep.allCases.count) · \(currentStep.title)")
+            Text(CapsStackText.format(
+                .stepOf,
+                currentStep.rawValue + 1,
+                SetupStep.allCases.count,
+                currentStep.title
+            ))
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
@@ -107,9 +113,9 @@ struct SetupView: View {
     }
 
     private var collectorsSection: some View {
-        SetupSection(number: 1, title: "Work history sources") {
+        SetupSection(number: 1, title: CapsStackText.resolve(.workHistorySources)) {
             if detectedCollectors.isEmpty {
-                unavailableMessage("No supported agents or readable history were found yet. You can still use an away memo.")
+                unavailableMessage(CapsStackText.resolve(.noReadableHistory))
             } else {
                 VStack(spacing: 8) {
                     ForEach(detectedCollectors) { kind in
@@ -129,8 +135,8 @@ struct SetupView: View {
                         }
                         .toggleStyle(.switch)
                         .disabled(cannotEnableCollector(kind))
-                        .accessibilityLabel("Collect from \(kind.collectionDisplayName)")
-                        .accessibilityValue(isCollectorEnabled(kind) ? "On" : "Off")
+                        .accessibilityLabel(CapsStackText.format(.collectFrom, kind.collectionDisplayName))
+                        .accessibilityValue(CapsStackText.resolve(isCollectorEnabled(kind) ? .on : .off))
                         .padding(.horizontal, 14)
                         .frame(height: 64)
                         .frame(maxWidth: .infinity)
@@ -143,9 +149,9 @@ struct SetupView: View {
     }
 
     private var summarizerSection: some View {
-        SetupSection(number: 2, title: "Return brief summarizer") {
+        SetupSection(number: 2, title: CapsStackText.resolve(.returnBriefSummarizer)) {
             if availableSummarizers.isEmpty {
-                unavailableMessage("No CLI is available for summarization. Install one and check again, or set its executable path.")
+                unavailableMessage(CapsStackText.resolve(.noSummarizerForSetup))
             } else {
                 VStack(spacing: 8) {
                     ForEach(availableSummarizers) { kind in
@@ -162,13 +168,21 @@ struct SetupView: View {
                             .foregroundStyle(primarySummarizer == kind.rawValue ? BrandPalette.BriefTheme.signal : .primary)
                             .padding(.horizontal, 14)
                             .frame(maxWidth: .infinity, minHeight: 52, maxHeight: 52, alignment: .leading)
-                            .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 10))
-                            .overlay(
+                            .background(
                                 primarySummarizer == kind.rawValue
-                                    ? BrandPalette.BriefTheme.signal.opacity(0.45)
-                                    : BrandPalette.BriefTheme.border,
+                                    ? BrandPalette.BriefTheme.signal.opacity(0.10)
+                                    : BrandPalette.BriefTheme.card,
                                 in: RoundedRectangle(cornerRadius: 10)
                             )
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(
+                                        primarySummarizer == kind.rawValue
+                                            ? BrandPalette.BriefTheme.signal.opacity(0.7)
+                                            : BrandPalette.BriefTheme.border,
+                                        lineWidth: primarySummarizer == kind.rawValue ? 1.5 : 1
+                                    )
+                            }
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(primarySummarizer == kind.rawValue ? .isSelected : [])
@@ -179,10 +193,10 @@ struct SetupView: View {
     }
 
     private var telemetrySection: some View {
-        SetupSection(number: 3, title: "Anonymous telemetry") {
+        SetupSection(number: 3, title: CapsStackText.resolve(.anonymousTelemetry)) {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(
-                    "Share anonymous usage data",
+                    CapsStackText.resource(.shareAnonymousUsage),
                     isOn: Binding(
                         get: { controller.isTelemetryEnabled },
                         set: { controller.setTelemetryEnabled($0) }
@@ -204,11 +218,23 @@ struct SetupView: View {
     }
 
     private var usageSection: some View {
-        SetupSection(number: 4, title: "How it works") {
+        SetupSection(number: 4, title: CapsStackText.resolve(.howItWorks)) {
             VStack(alignment: .leading, spacing: 10) {
-                usageStep(symbol: "capslock.fill", title: "Turn Caps Lock on", detail: "Start an away interval")
-                usageStep(symbol: "cup.and.saucer.fill", title: "Step away", detail: "Collect CLI history locally")
-                usageStep(symbol: "text.page.fill", title: "Turn Caps Lock off", detail: "Generate a return brief")
+                usageStep(
+                    symbol: "capslock.fill",
+                    title: CapsStackText.resolve(.turnCapsLockOn),
+                    detail: CapsStackText.resolve(.startAwayInterval)
+                )
+                usageStep(
+                    symbol: "cup.and.saucer.fill",
+                    title: CapsStackText.resolve(.stepAway),
+                    detail: CapsStackText.resolve(.collectCLIHistoryLocally)
+                )
+                usageStep(
+                    symbol: "text.page.fill",
+                    title: CapsStackText.resolve(.turnCapsLockOff),
+                    detail: CapsStackText.resolve(.generateReturnBrief)
+                )
             }
             .frame(maxWidth: .infinity)
             .padding(16)
@@ -220,29 +246,30 @@ struct SetupView: View {
     private var footer: some View {
         HStack(spacing: 12) {
             if currentStep != .collectors {
-                Button("Back") {
+                Button(CapsStackText.resource(.back)) {
                     move(to: currentStep.previous ?? .collectors)
                 }
             }
 
             if currentStep == .collectors || currentStep == .summarizer {
-                Button("Check again") {
+                Button(CapsStackText.resource(.checkAgain)) {
                     Task { await controller.refreshCLIStatuses() }
                 }
             }
 
             if currentStep == .summarizer && !canCompleteSetup {
-                Button("Open Advanced Settings") {
+                Button(CapsStackText.resource(.openAdvancedSettings)) {
                     openSettings()
                 }
             }
 
             Spacer()
 
-            Button(currentStep == .usage ? "Start using CapsStack" : "Next") {
+            Button(CapsStackText.resource(currentStep == .usage ? .startUsingCapsStack : .next)) {
                 if let next = currentStep.next {
                     move(to: next)
                 } else {
+                    controller.completeSetup()
                     isCompleted = true
                 }
             }
@@ -271,9 +298,9 @@ struct SetupView: View {
 
     private var telemetryDetail: String {
         if !controller.isTelemetryConfigured {
-            return "Anonymous events are not sent because this build has no telemetry destination configured."
+            return CapsStackText.resolve(.anonymousEventsNotSent)
         }
-        return "Only aggregate events such as return-brief success rates and failure types are sent. History, memos, session content, paths, and credentials are never sent."
+        return CapsStackText.resolve(.aggregateTelemetry)
     }
 
     private func normalizeSelections() {
@@ -314,7 +341,7 @@ struct SetupView: View {
     }
 
     private func collectorStatus(for kind: CLIKind) -> String {
-        guard let status = controller.cliStatuses[kind] else { return "Checking…" }
+        guard let status = controller.cliStatuses[kind] else { return CapsStackText.resolve(.checking) }
         return status.collectionStatusDescription
     }
 
@@ -362,7 +389,9 @@ struct SetupView: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityValue(step == currentStep ? "Current step" : step.rawValue < currentStep.rawValue ? "Completed" : "Not completed")
+        .accessibilityValue(CapsStackText.resolve(
+            step == currentStep ? .currentStep : step.rawValue < currentStep.rawValue ? .completed : .notCompleted
+        ))
     }
 
     private func usageStep(symbol: String, title: String, detail: String) -> some View {
@@ -403,19 +432,19 @@ private enum SetupStep: Int, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .collectors: "Review sources"
-        case .summarizer: "Choose a summarizer"
-        case .telemetry: "Review privacy"
-        case .usage: "Start with Caps Lock"
+        case .collectors: CapsStackText.resolve(.reviewSources)
+        case .summarizer: CapsStackText.resolve(.chooseSummarizer)
+        case .telemetry: CapsStackText.resolve(.reviewPrivacy)
+        case .usage: CapsStackText.resolve(.startWithCapsLock)
         }
     }
 
     var detail: String {
         switch self {
-        case .collectors: "Select detected agents automatically"
-        case .summarizer: "Generate briefs with your preferred CLI"
-        case .telemetry: "Anonymous telemetry starts off"
-        case .usage: "On to step away, off to return"
+        case .collectors: CapsStackText.resolve(.selectDetectedAgents)
+        case .summarizer: CapsStackText.resolve(.generateBriefsPreferredCLI)
+        case .telemetry: CapsStackText.resolve(.telemetryStartsOff)
+        case .usage: CapsStackText.resolve(.onToStepAwayOffToReturn)
         }
     }
 

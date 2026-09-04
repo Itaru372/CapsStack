@@ -1,4 +1,5 @@
 import Darwin
+import CapsStackLocalization
 import Foundation
 
 /// Collects OpenCode sessions through its documented CLI export boundary.
@@ -60,13 +61,13 @@ final class OpenCodeSessionCollector: SessionCollector {
                     sessions: [],
                     issues: [CollectionIssue(
                         provider: provider,
-                        message: "Log storage directory not found: \(rootDirectory.path)"
+                        message: CapsStackText.format(.logStorageDirectoryNotFound, rootDirectory.path)
                     )]
                 )
             }
             return fallbackToFiles(
                 interval: interval,
-                reason: "\(providerName) was not found"
+                reason: CapsStackText.format(.providerNotFoundNoPeriod, providerName)
             )
         }
 
@@ -83,7 +84,7 @@ final class OpenCodeSessionCollector: SessionCollector {
         guard let listData else {
             return fallbackToFiles(
                 interval: interval,
-                reason: "Could not list \(providerName) sessions"
+                reason: CapsStackText.format(.listSessionsFailed, providerName)
             )
         }
 
@@ -94,7 +95,7 @@ final class OpenCodeSessionCollector: SessionCollector {
             }
             return fallbackToFiles(
                 interval: interval,
-                reason: "Could not parse the \(providerName) session list"
+                reason: CapsStackText.format(.parseSessionListFailed, providerName)
             )
         }
 
@@ -108,7 +109,11 @@ final class OpenCodeSessionCollector: SessionCollector {
             guard remainingTime > 0 else {
                 issues.append(CollectionIssue(
                     provider: provider,
-                    message: "\(providerName) collection exceeded \(Int(collectionTimeout)) seconds; remaining sessions will be retried next time."
+                    message: CapsStackText.format(
+                        .collectionTimedOut,
+                        providerName,
+                        Int(collectionTimeout)
+                    )
                 ))
                 break
             }
@@ -120,7 +125,7 @@ final class OpenCodeSessionCollector: SessionCollector {
             ) else {
                 issues.append(CollectionIssue(
                     provider: provider,
-                        message: "Could not export the \(providerName) session: \(descriptor.id)"
+                    message: CapsStackText.format(.exportSessionFailed, providerName, descriptor.id)
                 ))
                 continue
             }
@@ -162,7 +167,7 @@ final class OpenCodeSessionCollector: SessionCollector {
                 sessions: [],
                 issues: [CollectionIssue(
                     provider: provider,
-                    message: "\(reason). The DB-backed CLI storage was not parsed directly."
+                    message: CapsStackText.format(.storageNotParsedDirectly, reason)
                 )]
             )
         }
@@ -173,7 +178,7 @@ final class OpenCodeSessionCollector: SessionCollector {
             sessions: fileResult.sessions,
             issues: [CollectionIssue(
                 provider: provider,
-                message: "\(reason); storage files were scanned as a fallback."
+                message: CapsStackText.format(.storageScannedFallback, reason)
             )] + fileResult.issues
         )
     }

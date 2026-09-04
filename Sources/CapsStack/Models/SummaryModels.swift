@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 struct SessionSummary: Codable, Equatable, Identifiable, Sendable {
@@ -63,7 +64,7 @@ struct SummaryDocument: Codable, Equatable, Sendable {
     }
 
     static let empty = SummaryDocument(
-        overview: "No progress could be summarized.",
+        overview: CapsStackText.resolve(.noProgressSummary),
         progress: [],
         currentState: [],
         decisions: [],
@@ -90,15 +91,15 @@ enum SummaryProviderError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .executableNotFound(let kind):
-            "\(kind.displayName) was not found."
+            CapsStackText.format(.providerNotFound, kind.displayName)
         case .processFailed(let kind, let message):
-            "\(kind.displayName) failed to run: \(message)"
+            CapsStackText.format(.providerFailed, kind.displayName, message)
         case .timedOut(let kind):
-            "\(kind.displayName) summary timed out."
+            CapsStackText.format(.providerTimedOut, kind.displayName)
         case .invalidOutput(let kind):
-            "\(kind.displayName) returned an unreadable summary."
+            CapsStackText.format(.providerInvalidOutput, kind.displayName)
         case .noProviderAvailable:
-            "No summarizer CLI is available."
+            CapsStackText.resolve(.noProviderAvailable)
         }
     }
 }

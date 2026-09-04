@@ -24,8 +24,8 @@ final class BrandRenderingTests: XCTestCase {
 
         let quickMemo = try render(
             QuickMemoView()
-                .frame(width: 440, height: 230),
-            size: CGSize(width: 440, height: 230)
+                .frame(width: 468, height: 306),
+            size: CGSize(width: 468, height: 306)
         )
         let settings = try render(
             SettingsView(controller: controller)
@@ -45,7 +45,7 @@ final class BrandRenderingTests: XCTestCase {
             size: CGSize(width: 1120, height: 740)
         )
 
-        XCTAssertEqual(quickMemo.size, CGSize(width: 440, height: 230))
+        XCTAssertEqual(quickMemo.size, CGSize(width: 468, height: 306))
         XCTAssertEqual(settings.size, CGSize(width: 980, height: 680))
         XCTAssertEqual(setup.size, CGSize(width: 1120, height: 740))
         XCTAssertEqual(history.size, CGSize(width: 1120, height: 740))

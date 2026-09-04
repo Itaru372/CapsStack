@@ -6,10 +6,11 @@ final class CLIModelCatalogTests: XCTestCase {
     func testOnlyCLIsWithStableListingBoundariesAdvertiseModelSelection() {
         XCTAssertEqual(
             CLIKind.modelListingCases,
-            [.codex, .opencode, .pi, .kiloCode]
+            [.codex, .opencode, .pi]
         )
         XCTAssertFalse(CLIKind.claudeCode.supportsModelListing)
         XCTAssertFalse(CLIKind.githubCopilot.supportsModelListing)
+        XCTAssertFalse(CLIKind.kiloCode.supportsModelListing)
         XCTAssertFalse(CLIKind.goose.supportsModelListing)
         XCTAssertFalse(CLIKind.qwenCode.supportsModelListing)
     }

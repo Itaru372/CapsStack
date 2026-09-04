@@ -1,4 +1,5 @@
 import Darwin
+import CapsStackLocalization
 import Foundation
 
 /// The complete, non-interactive invocation passed to a CLI process.
@@ -42,13 +43,13 @@ enum ProcessRunnerError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .invalidExecutable(let url):
-            return "Executable not found: \(url.path)"
+            return CapsStackText.format(.executableNotFound, url.path)
         case .failedToLaunch(let message):
-            return "Could not start process: \(message)"
+            return CapsStackText.format(.couldNotStartProcess, message)
         case .timedOut:
-            return "Process timed out."
+            return CapsStackText.resolve(.processTimedOut)
         case .cancelled:
-            return "Process was cancelled."
+            return CapsStackText.resolve(.processCancelled)
         }
     }
 }

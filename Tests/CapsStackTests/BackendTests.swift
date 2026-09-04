@@ -1,4 +1,5 @@
 import Foundation
+import CapsStackLocalization
 import XCTest
 @testable import CapsStack
 
@@ -88,7 +89,7 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(codexResult.sessions[0].provider, .codex)
         XCTAssertEqual(codexResult.sessions[0].events.count, 1)
         XCTAssertEqual(codexResult.sessions[0].events[0].content, "inside codex")
-        XCTAssertTrue(codexResult.issues.contains { $0.message.contains("invalid JSONL") })
+        XCTAssertTrue(codexResult.issues.contains { $0.message.contains("JSONL") })
 
         XCTAssertEqual(claudeResult.provider, .claudeCode)
         XCTAssertEqual(claudeResult.sessions.count, 1)
@@ -302,7 +303,7 @@ final class BackendTests: XCTestCase {
         )
 
         XCTAssertFalse(openCode.canCollect)
-        XCTAssertTrue(openCode.collectionStatusDescription.contains("OpenCode CLI is required"))
+        XCTAssertTrue(openCode.collectionStatusDescription.contains("OpenCode CLI"))
         XCTAssertTrue(codex.canCollect)
     }
 
@@ -532,7 +533,7 @@ final class BackendTests: XCTestCase {
             guard case .processFailed(.opencode, let message) = error else {
                 return XCTFail("unexpected error: \(error)")
             }
-            XCTAssertTrue(message.contains("not compatible"))
+            XCTAssertTrue(message.contains("OpenCode 2") || message.contains("対応していません"))
         }
         XCTAssertTrue(runner.specifications.isEmpty)
     }
@@ -564,7 +565,7 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(result.sessions.count, 1)
         XCTAssertEqual(result.sessions.first?.events.first?.content, "OpenCodeの進捗")
         XCTAssertEqual(result.sessions.first?.effectiveClient, .shared)
-        XCTAssertEqual(result.sessions.first?.sourceDisplayName, "OpenCode Shared Session")
+        XCTAssertTrue(result.sessions.first?.sourceDisplayName.contains("OpenCode") == true)
         XCTAssertEqual(calls.first, ["session", "list", "--max-count", "2000", "--format", "json"])
         XCTAssertEqual(calls.last, ["export", "session-1"])
     }
@@ -750,6 +751,30 @@ final class BackendTests: XCTestCase {
         XCTAssertTrue(result.issues.isEmpty)
     }
 
+    func testGitHubCopilotCollectorReadsQuotedAndMultilineWorkspaceYAML() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-copilot-yaml-\(UUID().uuidString)", isDirectory: true)
+        let session = root.appendingPathComponent("session-1", isDirectory: true)
+        try fileManager.createDirectory(at: session, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let now = Date()
+        let timestamp = ISO8601DateFormatter().string(from: now)
+        try Data("{\"timestamp\":\"\(timestamp)\",\"type\":\"assistant\",\"message\":\"done\"}\n".utf8)
+            .write(to: session.appendingPathComponent("events.jsonl"), options: .atomic)
+        try Data("""
+        cwd: >-
+          /tmp/project: with spaces
+        """.utf8).write(to: session.appendingPathComponent("workspace.yaml"), options: .atomic)
+
+        let interval = AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5))
+        let result = GitHubCopilotSessionCollector(rootDirectory: root).collect(interval: interval)
+
+        XCTAssertEqual(result.sessions.count, 1)
+        XCTAssertEqual(result.sessions.first?.workingDirectory, "/tmp/project: with spaces")
+    }
+
     func testGitHubCopilotCollectorIgnoresCheckpointJSON() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("CapsStack-copilot-filter-\(UUID())", isDirectory: true)
@@ -881,14 +906,16 @@ final class BackendTests: XCTestCase {
             ).collect(interval: interval)
 
             XCTAssertTrue(result.sessions.isEmpty)
-            XCTAssertTrue(result.issues.contains { $0.message.contains("not parsed directly") })
+            XCTAssertTrue(result.issues.contains {
+                $0.message.contains("直接解釈しません")
+                    || $0.message.contains("not parsed directly")
+            })
         }
     }
 
     func testNewHeadlessProvidersEnforceDocumentedSafetyModes() async throws {
         let cases: [(CLIKind, SafeHeadlessSummaryProvider.Strategy)] = [
             (.githubCopilot, .githubCopilot),
-            (.kiloCode, .kiloCode),
             (.goose, .goose),
             (.qwenCode, .qwenCode)
         ]
@@ -909,13 +936,6 @@ final class BackendTests: XCTestCase {
                 XCTAssertTrue(specification.arguments.contains("--disable-builtin-mcps"))
                 XCTAssertTrue(
                     specification.environment?["COPILOT_HOME"]?.hasPrefix(
-                        specification.currentDirectoryURL?.path ?? ""
-                    ) == true
-                )
-            case .kiloCode:
-                XCTAssertTrue(specification.arguments.contains("ask"))
-                XCTAssertTrue(
-                    specification.environment?["KILO_DB"]?.hasPrefix(
                         specification.currentDirectoryURL?.path ?? ""
                     ) == true
                 )
@@ -1033,7 +1053,9 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(provider.callCount, 5)
         XCTAssertEqual(provider.receivedBatches.first?.sessions.first?.id, "session-0")
         XCTAssertEqual(provider.receivedBatches[3].sessions.first?.id, "session-11")
-        XCTAssertTrue(outcome.document.blockers.contains { $0.contains("8 intermediate summary chunks") })
+        XCTAssertTrue(outcome.document.blockers.contains {
+            $0.contains("8 intermediate summary chunks") || $0.contains("中間要約8個")
+        })
 
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -1436,7 +1458,8 @@ final class BackendTests: XCTestCase {
             resolver: FixedDirectoryCLIResolver(logDirectory: root),
             runner: RecordingProcessRunner(),
             historyStore: HistoryStore(directoryURL: root.appendingPathComponent("history")),
-            notifications: SilentBackendNotificationService()
+            notifications: SilentBackendNotificationService(),
+            locale: Locale(identifier: "en")
         )
 
         controller.start()
@@ -1481,7 +1504,8 @@ final class BackendTests: XCTestCase {
             resolver: FixedDirectoryCLIResolver(logDirectory: root),
             runner: RecordingProcessRunner(),
             historyStore: HistoryStore(directoryURL: root.appendingPathComponent("history")),
-            notifications: SilentBackendNotificationService()
+            notifications: SilentBackendNotificationService(),
+            locale: Locale(identifier: "en")
         )
         controller.start()
 
@@ -1597,7 +1621,7 @@ final class BackendTests: XCTestCase {
             quickMemo: "GUI版エージェントも動いていた"
         )
 
-        let markdown = SummaryMarkdown.document(document, entry: entry)
+        let markdown = SummaryMarkdown.document(document, entry: entry, locale: Locale(identifier: "en"))
 
         XCTAssertTrue(markdown.contains("要約の概要"))
         XCTAssertTrue(markdown.contains("## Progress"))

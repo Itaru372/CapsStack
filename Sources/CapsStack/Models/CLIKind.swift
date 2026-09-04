@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -49,9 +50,9 @@ enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var collectionClientDescription: String {
         switch self {
-        case .codex: "CLI / Desktop / IDE"
-        case .opencode: "CLI / Desktop / IDE (via official export)"
-        default: "CLI"
+        case .codex: CapsStackText.resolve(.cliDesktopIDE)
+        case .opencode: CapsStackText.resolve(.cliDesktopIDEOfficialExport)
+        default: CapsStackText.resolve(.cli)
         }
     }
 
@@ -102,38 +103,41 @@ enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
 
     var modelHint: String {
         switch self {
-        case .codex: "e.g. gpt-5.5 (leave blank for Codex's default)"
-        case .claudeCode: "e.g. sonnet or claude-sonnet-4-5 (leave blank for the default)"
-        case .opencode: "e.g. anthropic/claude-sonnet-4-5 (provider/model)"
-        case .pi: "e.g. openai/gpt-5.5 or a model ID"
-        case .githubCopilot: "e.g. gpt-5.4 (leave blank for Copilot's default)"
-        case .kiloCode: "e.g. anthropic/claude-sonnet-4-6 (leave blank for the default)"
-        case .goose: "e.g. claude-sonnet-4-6 (leave blank for Goose's default)"
-        case .qwenCode: "e.g. qwen3-coder-plus (leave blank for the default)"
-        case .continueCLI: "e.g. claude-sonnet-4-6 (leave blank for the default)"
-        case .geminiCLI: "Collection only (not available as a summarizer)"
+        case .codex: CapsStackText.resolve(.codexModelHint)
+        case .claudeCode: CapsStackText.resolve(.claudeModelHint)
+        case .opencode: CapsStackText.resolve(.opencodeModelHint)
+        case .pi: CapsStackText.resolve(.piModelHint)
+        case .githubCopilot: CapsStackText.resolve(.copilotModelHint)
+        case .kiloCode: CapsStackText.resolve(.kiloModelHint)
+        case .goose: CapsStackText.resolve(.gooseModelHint)
+        case .qwenCode: CapsStackText.resolve(.qwenModelHint)
+        case .continueCLI: CapsStackText.resolve(.continueModelHint)
+        case .geminiCLI: CapsStackText.resolve(.collectionOnly)
         }
     }
 
     var reasoningHint: String {
         switch self {
-        case .codex: "minimal / low / medium / high / xhigh / none"
-        case .claudeCode: "low / medium / high / max / xhigh (depends on the CLI version)"
-        case .opencode: "A variant name supported by the selected model"
-        case .pi: "off / minimal / low / medium / high / xhigh / max"
-        case .githubCopilot: "low / medium / high / xhigh / max"
-        case .kiloCode: "Uses the Ask agent for summaries (no reasoning override)"
-        case .goose: "Uses Chat mode for summaries (no reasoning override)"
-        case .qwenCode: "Uses the model's default (no reasoning override)"
-        case .continueCLI: "Uses the model's default (no reasoning override)"
-        case .geminiCLI: "Collection only (not available as a summarizer)"
+        case .codex: CapsStackText.resolve(.codexReasoningHint)
+        case .claudeCode: CapsStackText.resolve(.claudeReasoningHint)
+        case .opencode: CapsStackText.resolve(.opencodeReasoningHint)
+        case .pi: CapsStackText.resolve(.piReasoningHint)
+        case .githubCopilot: CapsStackText.resolve(.copilotReasoningHint)
+        case .kiloCode: CapsStackText.resolve(.kiloReasoningHint)
+        case .goose: CapsStackText.resolve(.gooseReasoningHint)
+        case .qwenCode: CapsStackText.resolve(.modelDefaultReasoningHint)
+        case .continueCLI: CapsStackText.resolve(.modelDefaultReasoningHint)
+        case .geminiCLI: CapsStackText.resolve(.collectionOnly)
         }
     }
 
     var supportsCollection: Bool { true }
 
     var supportsSummarization: Bool {
-        self != .geminiCLI && self != .continueCLI
+        // Kilo's public non-interactive CLI contract has no tool-deny, read-only, or
+        // customization-isolation flag. Treat it as collection-only until that boundary is
+        // available rather than relying on an agent name such as `ask` for safety.
+        self != .geminiCLI && self != .continueCLI && self != .kiloCode
     }
 
     /// Images are bundled from each project's official site or official GitHub repository so
@@ -169,7 +173,7 @@ enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
     /// existing free-form model override so we do not invent or stale-cache a catalog for them.
     var supportsModelListing: Bool {
         switch self {
-        case .codex, .opencode, .pi, .kiloCode:
+        case .codex, .opencode, .pi:
             true
         default:
             false
@@ -242,20 +246,22 @@ struct CLIStatus: Equatable, Sendable {
 
     var collectionStatusDescription: String {
         if kind == .opencode, isDesktopAppInstalled, !isInstalled {
-            return "Desktop detected · OpenCode CLI is required for collection"
+            return CapsStackText.resolve(.openCodeDesktopRequiresCLI)
         }
 
         var detected: [String] = []
-        if isInstalled { detected.append("CLI") }
-        if isDesktopAppInstalled { detected.append("Desktop") }
-        if canReadLogs { detected.append("History") }
-        let detectedText = detected.isEmpty ? "Not detected" : detected.joined(separator: " / ") + " detected"
+        if isInstalled { detected.append(CapsStackText.resolve(.cli)) }
+        if isDesktopAppInstalled { detected.append(CapsStackText.resolve(.desktop)) }
+        if canReadLogs { detected.append(CapsStackText.resolve(.history)) }
+        let detectedText = detected.isEmpty
+            ? CapsStackText.resolve(.notDetected)
+            : CapsStackText.format(.detectedSources, detected.joined(separator: " / "))
 
         if kind == .opencode, isInstalled {
-            return "\(kind.collectionClientDescription) · \(detectedText)"
+            return CapsStackText.format(.collectionStatus, kind.collectionClientDescription, detectedText)
         }
         if kind == .codex {
-            return "\(kind.collectionClientDescription) · \(detectedText)"
+            return CapsStackText.format(.collectionStatus, kind.collectionClientDescription, detectedText)
         }
         return detectedText
     }

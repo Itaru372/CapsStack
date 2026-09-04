@@ -1,3 +1,4 @@
+import CapsStackLocalization
 import Foundation
 
 /// Reads a model catalog from a CLI without starting an agent session.
@@ -15,15 +16,15 @@ enum CLIModelListingError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unsupported(let kind):
-            return "\(kind.displayName) does not support model listing."
+            return CapsStackText.format(.modelListingUnsupported, kind.displayName)
         case .executableNotFound(let kind):
-            return "\(kind.displayName) executable was not found."
+            return CapsStackText.format(.modelExecutableNotFound, kind.displayName)
         case .timedOut(let kind):
-            return "Timed out while fetching the \(kind.displayName) model list."
+            return CapsStackText.format(.modelListingTimedOut, kind.displayName)
         case .processFailed(let kind):
-            return "Could not fetch the model list from \(kind.displayName)."
+            return CapsStackText.format(.modelListFetchFailed, kind.displayName)
         case .invalidOutput(let kind):
-            return "Could not parse the \(kind.displayName) model list."
+            return CapsStackText.format(.modelListParseFailed, kind.displayName)
         }
     }
 }

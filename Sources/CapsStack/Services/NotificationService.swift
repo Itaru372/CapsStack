@@ -1,4 +1,5 @@
 import Foundation
+import CapsStackLocalization
 import UserNotifications
 
 protocol NotificationServicing: AnyObject, Sendable {
@@ -26,8 +27,8 @@ final class NotificationService: NotificationServicing, @unchecked Sendable {
     func notify(outcome: SummaryOutcome, interval: AwayInterval, sessionCount: Int) async {
         guard await requestAuthorization() else { return }
         let content = UNMutableNotificationContent()
-        content.title = "CapsStack — Away progress"
-        content.subtitle = "\(outcome.provider.displayName) / \(sessionCount) sessions"
+        content.title = CapsStackText.resolve(.notificationAwayProgress)
+        content.subtitle = CapsStackText.format(.notificationSubtitle, outcome.provider.displayName, sessionCount)
         content.body = clipped(outcome.document.overview, limit: 240)
         content.sound = .default
         await deliver(content, identifier: "summary-\(UUID().uuidString)")
@@ -36,7 +37,7 @@ final class NotificationService: NotificationServicing, @unchecked Sendable {
     func notifyFailure(message: String, interval: AwayInterval? = nil) async {
         guard await requestAuthorization() else { return }
         let content = UNMutableNotificationContent()
-        content.title = "CapsStack — Summary failed"
+        content.title = CapsStackText.resolve(.notificationSummaryFailed)
         content.body = clipped(message, limit: 240)
         content.sound = .default
         await deliver(content, identifier: "failure-\(UUID().uuidString)")

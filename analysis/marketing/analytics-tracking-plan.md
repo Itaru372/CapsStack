@@ -88,7 +88,8 @@ Do not collect free-form feedback in product telemetry. If free-form feedback is
 
 ## Proposed event additions
 
-These are recommendations only; no telemetry code was changed.
+The first three additions below are implemented in the app. `notification_opened` remains a
+future follow-up because the current notification service does not expose a response callback.
 
 | Event name | Description | Properties | Trigger | Decision |
 |------------|-------------|------------|---------|----------|
