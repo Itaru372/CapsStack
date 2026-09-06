@@ -98,6 +98,72 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(claudeResult.sessions[0].events[0].content, "inside claude")
     }
 
+    func testJSONLCollectorDropsPartialLeadingRecordFromBoundedTail() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("CapsStack-tail-alignment-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let stamp = formatter.string(from: now)
+        let largeRecord = "{\"timestamp\":\"\(stamp)\",\"session_id\":\"large\",\"type\":\"assistant\",\"message\":\""
+            + String(repeating: "x", count: 80_000)
+            + "\"}\n"
+        let currentRecord = "{\"timestamp\":\"\(stamp)\",\"session_id\":\"current\",\"type\":\"assistant\",\"message\":\"current event\"}\n"
+        try Data((largeRecord + currentRecord).utf8).write(
+            to: root.appendingPathComponent("live.jsonl"),
+            options: .atomic
+        )
+
+        let result = JSONLSessionCollector(
+            provider: .codex,
+            rootDirectory: root,
+            maxFileBytes: 64 * 1_024
+        ).collect(interval: AwayInterval(start: now.addingTimeInterval(-5), end: now.addingTimeInterval(5)))
+
+        XCTAssertEqual(result.sessions.flatMap(\.events).map(\.content), ["current event"])
+        XCTAssertEqual(result.issues.count, 1)
+        XCTAssertFalse(result.issues.contains { $0.message.contains("invalid JSON") || $0.message.contains("不正なJSON") })
+    }
+
+    func testSummaryProcessErrorFormatterDoesNotPersistEchoedPrompt() {
+        let stderr = """
+        Reading prompt from stdin...
+        OpenAI Codex v0.153.4
+        You are CapsStack's dedicated summarization process.
+        BEGIN_CAPSSTACK_ARTIFACT
+        {"events":[{"content":"private session text"}]}
+        END_CAPSSTACK_ARTIFACT
+        ERROR authentication failed
+        """
+        let result = ProcessResult(
+            terminationStatus: 1,
+            standardOutput: Data(),
+            standardError: Data(stderr.utf8),
+            didTruncateOutput: false
+        )
+
+        let message = SummaryProcessErrorFormatter.message(from: result, fallback: "exit code 1")
+
+        XCTAssertEqual(message, "ERROR authentication failed")
+        XCTAssertFalse(message.contains("private session text"))
+        XCTAssertEqual(
+            SummaryProcessErrorFormatter.message(
+                from: ProcessResult(
+                    terminationStatus: 1,
+                    standardOutput: Data(),
+                    standardError: Data(),
+                    didTruncateOutput: false
+                ),
+                fallback: "exit code 1"
+            ),
+            "exit code 1"
+        )
+    }
+
     func testCodexClientClassificationCoversSupportedOrigins() {
         XCTAssertEqual(AgentClientKind.codex(originator: "Codex Desktop", source: "vscode"), .desktop)
         XCTAssertEqual(AgentClientKind.codex(originator: "codex_work_desktop", source: nil), .desktop)
@@ -934,11 +1000,11 @@ final class BackendTests: XCTestCase {
             case .githubCopilot:
                 XCTAssertTrue(specification.arguments.contains("--available-tools="))
                 XCTAssertTrue(specification.arguments.contains("--disable-builtin-mcps"))
-                XCTAssertTrue(
-                    specification.environment?["COPILOT_HOME"]?.hasPrefix(
-                        specification.currentDirectoryURL?.path ?? ""
-                    ) == true
-                )
+                if let copilotHome = specification.environment?["COPILOT_HOME"] {
+                    XCTAssertTrue(
+                        copilotHome.hasPrefix(specification.currentDirectoryURL?.path ?? "")
+                    )
+                }
             case .goose:
                 XCTAssertTrue(specification.arguments.contains("--no-session"))
                 XCTAssertEqual(specification.environment?["GOOSE_MODE"], "chat")

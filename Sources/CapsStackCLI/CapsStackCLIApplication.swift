@@ -37,7 +37,7 @@ struct CapsStackCLIApplication {
         memo: CLIMemoStore = CLIMemoStore(),
         environment: [String: String] = ProcessInfo.processInfo.environment,
         version: String = CapsStackCLIApplication.detectedVersion,
-        locale: Locale = .current,
+        locale: Locale = CapsStackText.systemLocale,
         readStandardInput: @escaping () throws -> String = {
             String(decoding: FileHandle.standardInput.readDataToEndOfFile(), as: UTF8.self)
         }
@@ -160,9 +160,9 @@ struct CapsStackCLIApplication {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0"
     }
 
-    static var helpText: String { helpText(locale: .current) }
+    static var helpText: String { helpText(locale: CapsStackText.systemLocale) }
 
-    static func helpText(locale: Locale = .current) -> String {
+    static func helpText(locale: Locale = CapsStackText.systemLocale) -> String {
         """
         CapsStack CLI
 

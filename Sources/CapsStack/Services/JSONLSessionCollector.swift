@@ -276,8 +276,20 @@ final class JSONLSessionCollector: SessionCollector {
             try handle.seek(toOffset: 0)
             prefixData = try handle.read(upToCount: 64 * 1_024) ?? Data()
         }
+        let boundedData = Data(data.prefix(maxFileBytes))
+        let recordAlignedData: Data
+        if startOffset == 0 {
+            recordAlignedData = boundedData
+        } else if let newline = boundedData.firstIndex(of: 10) {
+            // A bounded tail can begin halfway through a JSONL record. Drop only that partial
+            // record so a normal size cap does not manufacture a malformed-JSON issue on every
+            // large live log while preserving all complete records that follow it.
+            recordAlignedData = Data(boundedData[boundedData.index(after: newline)...])
+        } else {
+            recordAlignedData = Data()
+        }
         return ReadFile(
-            data: Data(data.prefix(maxFileBytes)),
+            data: recordAlignedData,
             modificationDate: modificationDate,
             wasTruncated: wasTruncated,
             client: clientKind(fromPrefix: prefixData)

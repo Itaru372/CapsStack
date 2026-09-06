@@ -65,9 +65,9 @@ codesign --verify --deep --strict "$APP_BUNDLE"
 
 open_app() {
   if [[ "${CAPSSTACK_DEMO_DATA:-0}" == "1" ]]; then
-    /usr/bin/open -n "$APP_BUNDLE" --args --capsstack-demo-data
+    /usr/bin/open "$APP_BUNDLE" --args --capsstack-demo-data
   else
-    /usr/bin/open -n "$APP_BUNDLE"
+    /usr/bin/open "$APP_BUNDLE"
   fi
 }
 

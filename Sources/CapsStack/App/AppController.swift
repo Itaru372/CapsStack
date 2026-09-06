@@ -73,7 +73,7 @@ final class AppController: ObservableObject {
         historyStore: HistoryStore = HistoryStore(),
         notifications: NotificationServicing = NotificationService(),
         telemetry: TelemetryClient? = nil,
-        locale: Locale = .current,
+        locale: Locale = CapsStackText.systemLocale,
         showsInMemoryDemoData: Bool = ProcessInfo.processInfo.arguments.contains("--capsstack-demo-data")
     ) {
         // Resolve CLI-specific defaults before any preference type registers its fallback domain.

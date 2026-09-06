@@ -15,7 +15,7 @@ enum CLIFormatting {
         return String(decoding: try encoder.encode(value), as: UTF8.self)
     }
 
-    static func markdown(_ entry: CLIHistoryEntry, locale: Locale = .current) -> String {
+    static func markdown(_ entry: CLIHistoryEntry, locale: Locale = CapsStackText.systemLocale) -> String {
         var lines = [
             CapsStackText.format(.capsStackSummary, date(entry.interval.start, locale: locale), locale: locale),
             "",
@@ -74,7 +74,7 @@ enum CLIFormatting {
         return lines.joined(separator: "\n")
     }
 
-    static func human(_ entry: CLIHistoryEntry, locale: Locale = .current) -> String {
+    static func human(_ entry: CLIHistoryEntry, locale: Locale = CapsStackText.systemLocale) -> String {
         var lines = [
             "\(entry.id.uuidString)  \(date(entry.interval.start, locale: locale))  [\(entry.status.rawValue)]",
             CapsStackText.format(.duration, duration(entry.interval.duration), entry.sessionCount, locale: locale)
@@ -89,7 +89,7 @@ enum CLIFormatting {
         return lines.joined(separator: "\n")
     }
 
-    static func listLine(_ entry: CLIHistoryEntry, locale: Locale = .current) -> String {
+    static func listLine(_ entry: CLIHistoryEntry, locale: Locale = CapsStackText.systemLocale) -> String {
         let overview = normalized(entry.summary?.overview)
             ?? normalized(entry.errorMessage)
             ?? CapsStackText.resolve(.noSummary, locale: locale)

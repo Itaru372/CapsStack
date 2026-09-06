@@ -55,6 +55,94 @@ enum SummaryPromptFactory {
     }
 }
 
+/// Extracts a short diagnostic from a failed provider process without persisting the prompt or
+/// the collected session artifact. Several CLIs echo stdin before reporting a failure, so taking
+/// the first N characters (the old behavior) both hid the useful error and copied private input
+/// into history.
+enum SummaryProcessErrorFormatter {
+    static func message(from result: ProcessResult, fallback: String) -> String {
+        let texts = [result.standardError, result.standardOutput].compactMap { data in
+            let text = String(decoding: data, as: UTF8.self)
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        }
+
+        for text in texts {
+            let hasCapsStackPrompt = text.contains("You are CapsStack's dedicated summarization process")
+                || text.contains("BEGIN_CAPSSTACK_ARTIFACT")
+            let diagnostics = text
+                .split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .filter { line in
+                    if hasCapsStackPrompt {
+                        return Self.isStrictDiagnostic(line)
+                    }
+                    return Self.isDiagnostic(line)
+                }
+
+            if !diagnostics.isEmpty {
+                return boundedUTF8(diagnostics.suffix(3).joined(separator: "\n"), limit: 1_000)
+            }
+        }
+
+        // A normal short test-double error remains useful, but never fall back to arbitrary text
+        // after a CapsStack prompt has been echoed by the provider.
+        for text in texts where !text.contains("You are CapsStack's dedicated summarization process")
+            && !text.contains("BEGIN_CAPSSTACK_ARTIFACT") {
+            if let firstLine = text.split(whereSeparator: \.isNewline)
+                .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+                .first(where: { !$0.isEmpty }) {
+                return boundedUTF8(firstLine, limit: 1_000)
+            }
+        }
+
+        return fallback
+    }
+
+    private static func isStrictDiagnostic(_ line: String) -> Bool {
+        let uppercased = line.uppercased()
+        return uppercased.hasPrefix("ERROR")
+            || uppercased.hasPrefix("WARN")
+            || uppercased.hasPrefix("FATAL")
+            || line.hasPrefix("Error:")
+            || line.hasPrefix("error:")
+            || line.hasPrefix("Fatal:")
+    }
+
+    private static func isDiagnostic(_ line: String) -> Bool {
+        let lowercased = line.lowercased()
+        return isStrictDiagnostic(line)
+            || lowercased.hasPrefix("failed")
+            || lowercased.hasPrefix("failure")
+            || lowercased.hasPrefix("permission")
+            || lowercased.hasPrefix("authentication")
+            || lowercased.hasPrefix("unauthorized")
+            || lowercased.hasPrefix("forbidden")
+            || lowercased.hasPrefix("not found")
+            || lowercased.hasPrefix("no such file")
+            || lowercased.hasPrefix("timed out")
+            || lowercased.hasPrefix("timeout")
+            || lowercased.hasPrefix("network")
+            || lowercased.hasPrefix("connection")
+            || lowercased.hasPrefix("rate limit")
+            || lowercased.hasPrefix("invalid")
+            || lowercased.hasPrefix("unknown option")
+            || lowercased.hasPrefix("usage:")
+            || lowercased.hasPrefix("exit code")
+    }
+
+    private static func boundedUTF8(_ value: String, limit: Int) -> String {
+        let data = Data(value.utf8)
+        guard data.count > limit else { return value }
+        var end = limit
+        while end > 0 {
+            if let result = String(data: data.prefix(end), encoding: .utf8) { return result }
+            end -= 1
+        }
+        return ""
+    }
+}
+
 private struct ProjectGroupedPromptArtifact: Encodable {
     let interval: AwayInterval
     let projects: [PromptProjectArtifact]
@@ -178,7 +266,7 @@ final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .codex,
-                    Self.errorMessage(
+                    SummaryProcessErrorFormatter.message(
                         from: result,
                         fallback: CapsStackText.format(.exitCode, result.terminationStatus)
                     )
@@ -216,14 +304,6 @@ final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {
         }
     }
 
-    private static func errorMessage(from result: ProcessResult, fallback: String) -> String {
-        for data in [result.standardError, result.standardOutput] {
-            let text = (String(data: data, encoding: .utf8) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { return String(text.prefix(1_000)) }
-        }
-        return fallback
-    }
 }
 
 final class ClaudeCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
@@ -319,7 +399,7 @@ final class ClaudeCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .claudeCode,
-                    Self.errorMessage(
+                    SummaryProcessErrorFormatter.message(
                         from: result,
                         fallback: CapsStackText.format(.exitCode, result.terminationStatus)
                     )
@@ -375,14 +455,6 @@ final class ClaudeCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
         }
     }
 
-    private static func errorMessage(from result: ProcessResult, fallback: String) -> String {
-        for data in [result.standardError, result.standardOutput] {
-            let text = (String(data: data, encoding: .utf8) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { return String(text.prefix(1_000)) }
-        }
-        return fallback
-    }
 }
 
 final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
@@ -462,7 +534,7 @@ final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .opencode,
-                    Self.errorMessage(
+                    SummaryProcessErrorFormatter.message(
                         from: result,
                         fallback: CapsStackText.format(.exitCode, result.terminationStatus)
                     )
@@ -511,14 +583,6 @@ final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
         ]
     }
 
-    private static func errorMessage(from result: ProcessResult, fallback: String) -> String {
-        for data in [result.standardError, result.standardOutput] {
-            let text = (String(data: data, encoding: .utf8) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { return String(text.prefix(1_000)) }
-        }
-        return fallback
-    }
 }
 
 final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
@@ -596,7 +660,7 @@ final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
             guard result.succeeded else {
                 throw SummaryProviderError.processFailed(
                     .pi,
-                    Self.errorMessage(
+                    SummaryProcessErrorFormatter.message(
                         from: result,
                         fallback: CapsStackText.format(.exitCode, result.terminationStatus)
                     )
@@ -634,14 +698,6 @@ final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
         }
     }
 
-    private static func errorMessage(from result: ProcessResult, fallback: String) -> String {
-        for data in [result.standardError, result.standardOutput] {
-            let text = (String(data: data, encoding: .utf8) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { return String(text.prefix(1_000)) }
-        }
-        return fallback
-    }
 }
 
 /// Runs newer agent CLIs only through their documented non-interactive, tool-disabled modes.
@@ -721,10 +777,13 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
                 throw SummaryProviderError.processFailed(kind, error.localizedDescription)
             }
             guard result.succeeded else {
-                let text = String(data: result.standardError, encoding: .utf8)
-                    ?? String(data: result.standardOutput, encoding: .utf8)
-                    ?? CapsStackText.format(.exitCode, result.terminationStatus)
-                throw SummaryProviderError.processFailed(kind, String(text.prefix(1_000)))
+                throw SummaryProviderError.processFailed(
+                    kind,
+                    SummaryProcessErrorFormatter.message(
+                        from: result,
+                        fallback: CapsStackText.format(.exitCode, result.terminationStatus)
+                    )
+                )
             }
             guard !result.didTruncateOutput,
                   let document = SummaryOutputParser.parse(stdout: result.standardOutput, provider: kind) else {
@@ -757,11 +816,7 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
             ]
             if let model, !model.isEmpty { arguments += ["--model", model] }
             if let reasoning, !reasoning.isEmpty { arguments += ["--effort", reasoning] }
-            return (arguments, [
-                // COPILOT_HOME contains session-state and other persistent CLI state. Keeping it
-                // below the temporary cwd prevents the artifact from being retained after this
-                // one-shot summary.
-                "COPILOT_HOME": temporaryDirectory.appendingPathComponent("copilot-home", isDirectory: true).path,
+            var environment: [String: String] = [
                 "COPILOT_CACHE_HOME": temporaryDirectory.appendingPathComponent("copilot-cache", isDirectory: true).path,
                 "COPILOT_MCP_TOOL_CACHE": "false",
                 "COPILOT_OTEL_ENABLED": "false",
@@ -769,7 +824,20 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
                 "COPILOT_OTEL_FILE_EXPORTER_PATH": "",
                 "OTEL_EXPORTER_OTLP_ENDPOINT": "",
                 "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "false"
-            ])
+            ]
+            // COPILOT_HOME also contains the installed CLI's authentication state. Isolate it
+            // only when a token is explicitly supplied in the environment; otherwise replacing
+            // it with an empty temporary directory makes a valid interactive login look missing.
+            let hasEnvironmentToken = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"].contains {
+                guard let value = ProcessInfo.processInfo.environment[$0] else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            if hasEnvironmentToken {
+                environment["COPILOT_HOME"] = temporaryDirectory
+                    .appendingPathComponent("copilot-home", isDirectory: true)
+                    .path
+            }
+            return (arguments, environment)
         case .goose:
             var arguments = [
                 "run", "--no-session", "--quiet", "--output-format", "json", "-t", prompt

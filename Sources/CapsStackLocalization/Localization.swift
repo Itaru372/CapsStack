@@ -2,8 +2,9 @@ import Foundation
 
 /// Shared user-facing strings for the app and `capsstack-cli`.
 ///
-/// English remains the key and fallback language so existing exports and diagnostics keep their
-/// current contract. The Japanese translations live in the package's `ja.lproj` string table.
+/// English remains the source-key and fallback language so explicit English exports and diagnostics
+/// keep their current contract. The app selects the language-specific table from the Mac's
+/// current locale; Japanese translations live in the package's `ja.lproj` string table.
 public enum CapsStackText {
     public enum Key: String, CaseIterable, Sendable {
         // App state and workflow
@@ -335,7 +336,21 @@ public enum CapsStackText {
         public static let openCodeCollectionFailure = Self.storageNotParsedDirectly
     }
 
-    public static func resource(_ key: Key, locale: Locale = .current) -> LocalizedStringResource {
+    /// The first language in the Mac's preferred-language list is the language used for UI text.
+    ///
+    /// `Locale.current` includes regional settings and can be affected by the process environment,
+    /// while `preferredLanguages` is the same language ordering macOS uses for application
+    /// localization. Keeping the region in the returned locale still lets Foundation format
+    /// dates and numbers appropriately. The value is computed on every call; the app still needs a
+    /// relaunch after a macOS language change so already-created windows and controllers refresh.
+    public static var systemLocale: Locale {
+        guard let identifier = Locale.preferredLanguages.first, !identifier.isEmpty else {
+            return .current
+        }
+        return Locale(identifier: identifier)
+    }
+
+    public static func resource(_ key: Key, locale: Locale = CapsStackText.systemLocale) -> LocalizedStringResource {
         LocalizedStringResource(
             String.LocalizationValue(key.rawValue),
             locale: locale,
@@ -343,7 +358,7 @@ public enum CapsStackText {
         )
     }
 
-    public static func resolve(_ key: Key, locale: Locale = .current) -> String {
+    public static func resolve(_ key: Key, locale: Locale = CapsStackText.systemLocale) -> String {
         // Foundation's `String(localized:bundle:locale:)` does not reliably select a SwiftPM
         // resource bundle's language table when the key is dynamic. Resolve against the
         // language-specific child bundle explicitly so non-SwiftUI surfaces (errors, notices,
@@ -356,7 +371,7 @@ public enum CapsStackText {
         )
     }
 
-    public static func format(_ key: Key, _ arguments: CVarArg..., locale: Locale = .current) -> String {
+    public static func format(_ key: Key, _ arguments: CVarArg..., locale: Locale = CapsStackText.systemLocale) -> String {
         let format = resolve(key, locale: locale)
         return String(format: format, locale: locale, arguments: arguments)
     }

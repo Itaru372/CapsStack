@@ -1,10 +1,31 @@
 import AppKit
 import CapsStackLocalization
+import Darwin
 import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var instanceLockDescriptor: Int32?
+    private var instanceLockURL: URL?
+    private var isPrimaryInstance = true
+
+    override init() {
+        super.init()
+        isPrimaryInstance = acquireInstanceLock()
+        if !isPrimaryInstance {
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard isPrimaryInstance else {
+            activateExistingApplication()
+            NSApp.terminate(nil)
+            return
+        }
+
         // The approved design uses a regular macOS window plus the native menu bar,
         // while MenuBarExtra keeps away/return controls available system-wide.
         NSApp.setActivationPolicy(.regular)
@@ -20,9 +41,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ProcessInfo.processInfo.disableSuddenTermination()
     }
 
+    deinit {
+        if let instanceLockDescriptor {
+            Darwin.close(instanceLockDescriptor)
+        }
+        if let instanceLockURL {
+            try? FileManager.default.removeItem(at: instanceLockURL)
+        }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         // Keep running in background even when history/settings windows are closed.
         false
+    }
+
+    private func activateExistingApplication() {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
+        let currentProcessID = ProcessInfo.processInfo.processIdentifier
+        NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleIdentifier)
+            .first(where: { $0.processIdentifier != currentProcessID })?
+            .activate(options: [.activateAllWindows])
+    }
+
+    /// `NSRunningApplication` can race while two `open -n` launches are registering. An
+    /// exclusive lock file closes that gap. A stale PID is removed on the next launch so a
+    /// terminated process cannot block the app forever.
+    private func acquireInstanceLock() -> Bool {
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        let directory = appSupport.appendingPathComponent("CapsStack", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch {
+            return true
+        }
+
+        let lockURL = directory.appendingPathComponent("instance.lock")
+        let descriptor = Darwin.open(lockURL.path, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR)
+        if descriptor >= 0 {
+            let processID = Data("\(ProcessInfo.processInfo.processIdentifier)\n".utf8)
+            processID.withUnsafeBytes { bytes in
+                _ = Darwin.write(descriptor, bytes.baseAddress, processID.count)
+            }
+            instanceLockDescriptor = descriptor
+            instanceLockURL = lockURL
+            return true
+        }
+
+        guard errno == EEXIST else { return true }
+        if activeInstanceLock(at: lockURL) { return false }
+        try? fileManager.removeItem(at: lockURL)
+
+        let retryDescriptor = Darwin.open(lockURL.path, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR)
+        guard retryDescriptor >= 0 else { return false }
+        let processID = Data("\(ProcessInfo.processInfo.processIdentifier)\n".utf8)
+        processID.withUnsafeBytes { bytes in
+            _ = Darwin.write(retryDescriptor, bytes.baseAddress, processID.count)
+        }
+        instanceLockDescriptor = retryDescriptor
+        instanceLockURL = lockURL
+        return true
+    }
+
+    private func activeInstanceLock(at lockURL: URL) -> Bool {
+        guard let rawProcessID = try? String(contentsOf: lockURL, encoding: .utf8),
+              let processID = Int32(rawProcessID.trimmingCharacters(in: .whitespacesAndNewlines)),
+              processID > 0 else {
+            // The creator writes the PID immediately after the exclusive create. Treat a fresh
+            // empty file as active so a simultaneous launch cannot remove the lock in that gap.
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: lockURL.path),
+                  let modified = attributes[.modificationDate] as? Date else {
+                return true
+            }
+            return Date().timeIntervalSince(modified) < 5
+        }
+        if let application = NSRunningApplication(processIdentifier: processID) {
+            return application.bundleIdentifier == Bundle.main.bundleIdentifier
+        }
+        return Darwin.kill(processID, 0) == 0 || errno == EPERM
     }
 }
 

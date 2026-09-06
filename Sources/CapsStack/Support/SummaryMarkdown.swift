@@ -8,19 +8,19 @@ enum SummaryMarkdown {
     /// useful diagnostics (the selected sources, collection issues, memo, and an error). Keeping
     /// those entries exportable makes the History actions honest instead of silently doing
     /// nothing when the selected row has not produced a summary yet.
-    static func document(for entry: HistoryEntry, locale: Locale = .current) -> String {
+    static func document(for entry: HistoryEntry, locale: Locale = CapsStackText.systemLocale) -> String {
         guard let summary = entry.summary else {
             return statusDocument(for: entry, locale: locale)
         }
         return document(summary, entry: entry, locale: locale)
     }
 
-    static func document(_ summary: SummaryDocument, entry: HistoryEntry, locale: Locale = .current) -> String {
+    static func document(_ summary: SummaryDocument, entry: HistoryEntry, locale: Locale = CapsStackText.systemLocale) -> String {
         var lines: [String] = []
         let start = entry.interval.start
         lines.append(CapsStackText.format(
             .capsStackSummary,
-            start.formatted(.dateTime.year().month().day().hour().minute()),
+            start.formatted(.dateTime.locale(locale).year().month().day().hour().minute()),
             locale: locale
         ))
         lines.append("")
@@ -71,7 +71,7 @@ enum SummaryMarkdown {
         var lines = [
             CapsStackText.format(
                 .capsStackHistory,
-                start.formatted(.dateTime.year().month().day().hour().minute()),
+                start.formatted(.dateTime.locale(locale).year().month().day().hour().minute()),
                 locale: locale
             ),
             "",

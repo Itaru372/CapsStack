@@ -1,7 +1,8 @@
 import Foundation
+import CapsStackLocalization
 
 enum DemoHistoryContent {
-    static func entries(locale: Locale = .current) -> [HistoryEntry] {
+    static func entries(locale: Locale = CapsStackText.systemLocale) -> [HistoryEntry] {
         let copy: (String, String) -> String = { english, japanese in
             locale.language.languageCode?.identifier == "ja" ? japanese : english
         }

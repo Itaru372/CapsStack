@@ -7,6 +7,19 @@ final class LocalizationTests: XCTestCase {
     private let english = Locale(identifier: "en")
     private let japanese = Locale(identifier: "ja-JP")
 
+    func testDefaultTextUsesTheMacPreferredLanguage() {
+        let systemLocale = CapsStackText.systemLocale
+
+        XCTAssertEqual(
+            CapsStackText.resolve(.history),
+            CapsStackText.resolve(.history, locale: systemLocale)
+        )
+
+        if systemLocale.language.languageCode?.identifier == "ja" {
+            XCTAssertEqual(CapsStackText.resolve(.history), "履歴")
+        }
+    }
+
     func testSharedTextUsesTheRequestedDisplayLanguage() {
         XCTAssertEqual(CapsStackText.resolve(.history, locale: english), "History")
         XCTAssertEqual(CapsStackText.resolve(.history, locale: japanese), "履歴")
