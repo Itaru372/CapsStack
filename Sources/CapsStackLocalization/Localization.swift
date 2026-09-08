@@ -25,6 +25,18 @@ public enum CapsStackText {
         case noCollectionSources = "No collection sources are selected."
         case couldNotSaveRetryData = "Could not save retry data"
 
+        case aboutCapsStack = "About CapsStack"
+        case resumeWithContext = "Pick up where your agents left off."
+        case latestBrief = "Go to latest brief"
+        case previousMonth = "Previous month"
+        case nextMonth = "Next month"
+        case briefActions = "Brief actions"
+        case summarizerPurpose = "Choose who writes your return brief. This does not change which agents you collect from."
+        case generalPurpose = "Make stepping away part of your Mac workflow."
+        case noSettingsResults = "No matching settings"
+        case trySettingsSearch = "Try an agent name, notifications, or keyboard shortcuts."
+        case memoHeading = "Leave a thread to pick up."
+        case brandPromise = "Step away. Come back caught up."
         // App chrome and history
         case historyWindow = "CapsStack History"
         case history = "History"

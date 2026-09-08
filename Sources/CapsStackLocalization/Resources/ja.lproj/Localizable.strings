@@ -301,3 +301,17 @@
 "Desktop detected · OpenCode CLI is required for collection" = "Desktopを検出 ・ 収集にはOpenCode CLIが必要";
 "The input limit omitted %lld intermediate summary chunks." = "入力上限により中間要約%lld個を省略しました。";
 "The combined input limit omitted part of the project summaries." = "統合入力上限によりプロジェクト要約の一部を省略しました。";
+
+"Pick up where your agents left off." = "エージェントの現在地から、作業を再開。";
+"Go to latest brief" = "最新のブリーフへ";
+"Previous month" = "前の月";
+"Next month" = "次の月";
+"Brief actions" = "ブリーフの操作";
+"Choose who writes your return brief. This does not change which agents you collect from." = "ブリーフを作る担当を選びます。収集するエージェントの設定は変わりません。";
+"Make stepping away part of your Mac workflow." = "離席と復帰を、いつものMacの使い方に。";
+"No matching settings" = "一致する設定がありません";
+"Try an agent name, notifications, or keyboard shortcuts." = "エージェント名、通知、ショートカットなどで検索してください。";
+"Leave a thread to pick up." = "戻った自分に、ひとこと。";
+"Step away. Come back caught up." = "席を離れても、すぐ続きから。";
+
+"About CapsStack" = "CapsStackについて";

@@ -163,6 +163,11 @@ struct CapsStackApp: App {
         }
         .windowResizability(.contentSize)
 
+        Window(CapsStackText.resource(.aboutCapsStack), id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+
         Settings {
             SettingsView(controller: controller)
                 .task {
@@ -179,6 +184,13 @@ private struct CapsStackCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button(CapsStackText.resource(.aboutCapsStack)) {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "about")
+            }
+        }
+
         CommandMenu(CapsStackText.resource(.history)) {
             Button(CapsStackText.resource(.openHistory)) {
                 NSApp.activate(ignoringOtherApps: true)

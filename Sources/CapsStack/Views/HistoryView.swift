@@ -16,49 +16,58 @@ enum HistoryExportNaming {
 
 struct HistoryView: View {
     @ObservedObject var controller: AppController
+    @Environment(\.openWindow) private var openWindow
     @State private var selection: UUID?
     @State private var displayedMonth = Calendar.current.startOfMonth(for: .now)
     @State private var exportMessage: String?
     @State private var entryPendingDeletion: HistoryEntry?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                dateStrip
-
-                if let entry = selectedEntry {
-                    SessionHeaderCard(
-                        entry: entry,
-                        message: exportMessage,
-                        retry: { controller.retry(entry) },
-                        canRetry: canRetry(entry),
-                        copy: { copy(entry) },
-                        export: { export(entry) },
-                        delete: { entryPendingDeletion = entry }
-                    )
-                    ReturnBriefView(
-                        entry: entry,
-                        submitFeedback: controller.isTelemetryEnabled
-                            ? { reason in controller.recordBriefFeedback(reason, for: entry) }
-                            : nil
-                    )
-                } else {
-                    ContentUnavailableView(
-                        CapsStackText.resource(.noHistoryYet),
-                        systemImage: "clock.arrow.circlepath",
-                        description: Text(CapsStackText.resource(.startRecordingAway))
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 72)
+        HStack(spacing: 0) {
+            historySidebar
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    workspaceHeader
+                    if let entry = selectedEntry {
+                        SessionHeaderCard(
+                            entry: entry,
+                            message: exportMessage,
+                            retry: { controller.retry(entry) },
+                            canRetry: canRetry(entry),
+                            copy: { copy(entry) },
+                            export: { export(entry) },
+                            delete: { entryPendingDeletion = entry }
+                        )
+                        ReturnBriefView(
+                            entry: entry,
+                            submitFeedback: controller.isTelemetryEnabled
+                                ? { reason in controller.recordBriefFeedback(reason, for: entry) }
+                                : nil
+                        )
+                    } else {
+                        ContentUnavailableView {
+                            Label(CapsStackText.resource(.noHistoryYet), systemImage: "text.page")
+                        } description: {
+                            Text(CapsStackText.resource(.startRecordingAway))
+                        } actions: {
+                            if !controller.history.isEmpty {
+                                Button(CapsStackText.resource(.latestBrief)) {
+                                    selectNewestEntry(in: controller.history)
+                                }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 60)
+                    }
                 }
+                .padding(28)
+                .frame(maxWidth: 940, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
-            .padding(28)
-            .frame(maxWidth: 980, alignment: .leading)
-            .frame(maxWidth: .infinity)
         }
+        .frame(minWidth: 940, minHeight: 600)
         .background(BrandPalette.BriefTheme.canvas.ignoresSafeArea())
-        .preferredColorScheme(.dark)
         .tint(BrandPalette.BriefTheme.signal)
         .navigationTitle(CapsStackText.resource(.history))
         .confirmationDialog(
@@ -108,51 +117,105 @@ struct HistoryView: View {
         }
     }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(CapsStackText.resource(.history))
-                .font(.system(size: 32, weight: .bold))
-
-            if controller.isShowingDemoData {
-                Text(CapsStackText.resource(.demoData))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(BrandPalette.BriefTheme.signal)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        BrandPalette.BriefTheme.signal.opacity(0.12),
-                        in: Capsule()
-                    )
-                    .padding(.leading, 6)
+    private var workspaceHeader: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(CapsStackText.resource(.returnBrief))
+                    .font(.system(size: 28, weight: .bold))
+                Text(CapsStackText.resource(.resumeWithContext))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
-
             Spacer()
-
-            Text(displayedMonth, format: .dateTime.year().month())
-                .font(.headline.monospacedDigit())
-
-            HStack(spacing: 4) {
-                IconButton(systemName: "chevron.left") { shiftMonth(-1) }
-                IconButton(systemName: "chevron.right") { shiftMonth(1) }
-            }
+            Label(controller.stateTitle, systemImage: "circle.fill")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(controller.phase.brandColor)
+                .padding(8)
+                .background(BrandPalette.BriefTheme.panel, in: Capsule())
         }
     }
 
-    private var dateStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(entriesByDayInMonth) { bucket in
-                    DaySummaryCard(
-                        bucket: bucket,
-                        isSelected: isSelected(bucket),
-                        select: {
-                            selection = bucket.entries.first?.id
-                        }
-                    )
+    private var historySidebar: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                BrandAppIcon(size: 32)
+                Text("CapsStack").font(.headline)
+                Spacer()
+            }
+            .padding(.top, 6)
+            HStack {
+                Text(CapsStackText.resource(.history)).font(.headline)
+                Spacer()
+                if controller.isShowingDemoData {
+                    Text(CapsStackText.resource(.demoData))
+                        .font(.caption2)
+                        .foregroundStyle(BrandPalette.BriefTheme.signal)
                 }
             }
-            .padding(.vertical, 2)
+            HStack {
+                Text(displayedMonth, format: .dateTime.year().month())
+                    .font(.callout.weight(.medium).monospacedDigit())
+                Spacer()
+                Button { shiftMonth(-1) } label: { Image(systemName: "chevron.left") }
+                    .help(CapsStackText.resolve(.previousMonth))
+                    .accessibilityLabel(CapsStackText.resolve(.previousMonth))
+                Button { shiftMonth(1) } label: { Image(systemName: "chevron.right") }
+                    .help(CapsStackText.resolve(.nextMonth))
+                    .accessibilityLabel(CapsStackText.resolve(.nextMonth))
+            }
+            .buttonStyle(.borderless)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(entriesByDayInMonth.reversed()) { bucket in
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(bucket.dayStart, format: .dateTime.month().day().weekday())
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 8)
+                            ForEach(bucket.entries) { entry in
+                                Button { selection = entry.id } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        HStack {
+                                            Text(entry.interval.start, format: .dateTime.hour().minute())
+                                            Text("–")
+                                            Text(entry.interval.end, format: .dateTime.hour().minute())
+                                            Spacer(minLength: 0)
+                                            Image(systemName: entry.status == .pending
+                                                  ? "exclamationmark.circle" : "chevron.right")
+                                        }
+                                        .font(.callout.weight(.semibold).monospacedDigit())
+                                        Text(CapsStackText.format(.sessionsCount, entry.sessionCount)
+                                             + " · " + DurationFormatter.string(from: entry.interval.duration))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(12)
+                                    .foregroundStyle(selection == entry.id ? BrandPalette.BriefTheme.signal : .primary)
+                                    .background(selection == entry.id ? BrandPalette.BriefTheme.signal.opacity(0.10) : Color.clear,
+                                                in: RoundedRectangle(cornerRadius: 9))
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(selection == entry.id ? .isSelected : [])
+                            }
+                        }
+                    }
+                }
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 10) {
+                Button { openWindow(id: "quick-memo") } label: {
+                    Label(CapsStackText.resource(.awayMemoEllipsis), systemImage: "square.and.pencil")
+                }
+                SettingsLink { Label(CapsStackText.resource(.settings), systemImage: "gearshape") }
+            }
+            .buttonStyle(.borderless)
+            .font(.callout)
         }
+        .padding(18)
+        .frame(width: 260)
+        .background(BrandPalette.BriefTheme.panel.ignoresSafeArea())
     }
 
     private func copy(_ entry: HistoryEntry) {
@@ -264,70 +327,6 @@ private struct IconButton: View {
     }
 }
 
-private struct DaySummaryCard: View {
-    let bucket: DayBucket
-    let isSelected: Bool
-    let select: () -> Void
-
-    var body: some View {
-        Button(action: select) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(bucket.dayStart, format: .dateTime.day())
-                    .font(.system(size: 25, weight: .bold, design: .rounded))
-                    .foregroundStyle(isSelected ? BrandPalette.BriefTheme.signal : .primary)
-
-                Text(bucket.dayStart, format: .dateTime.weekday(.abbreviated))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                ActivityBars(entries: bucket.entries)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(CapsStackText.format(.sessionsCount, bucket.sessionCount))
-                        .font(.caption2.weight(.medium))
-                    Text(Self.durationText(for: bucket.duration))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(14)
-            .frame(width: 116, height: 148, alignment: .topLeading)
-            .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 10))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(
-                        isSelected ? BrandPalette.BriefTheme.signal : BrandPalette.BriefTheme.border,
-                        lineWidth: isSelected ? 1.5 : 1
-                    )
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private static func durationText(for duration: TimeInterval) -> String {
-        let totalMinutes = Int(max(0, duration)) / 60
-        return String(format: "%d:%02d", totalMinutes / 60, totalMinutes % 60)
-    }
-}
-
-private struct ActivityBars: View {
-    let entries: [HistoryEntry]
-
-    var body: some View {
-        let maximum = entries.map(\.interval.duration).max() ?? 0
-
-        return HStack(alignment: .bottom, spacing: 3) {
-            ForEach(entries.prefix(8)) { entry in
-                let ratio = maximum > 0 ? entry.interval.duration / maximum : 0
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(ratio > 0 ? BrandPalette.BriefTheme.signal.opacity(0.28 + ratio * 0.42) : Color.white.opacity(0.08))
-                    .frame(width: 5, height: max(6, ratio * 22))
-            }
-        }
-        .frame(height: 22, alignment: .bottom)
-    }
-}
-
 private struct SessionHeaderCard: View {
     let entry: HistoryEntry
     let message: String?
@@ -338,12 +337,12 @@ private struct SessionHeaderCard: View {
     let delete: () -> Void
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 12) {
             Text("\(entry.interval.start, format: .dateTime.month().day().hour().minute()) - \(entry.interval.end, format: .dateTime.hour().minute())")
                 .font(.body.monospacedDigit())
 
             Text(DurationFormatter.string(from: entry.interval.duration))
-                .font(.title3.weight(.semibold).monospacedDigit())
+                .font(.callout.weight(.medium).monospacedDigit())
 
             statusPill
 
@@ -364,7 +363,13 @@ private struct SessionHeaderCard: View {
                     systemImage: "doc.on.doc"
                 )
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
+
+            if entry.status == .pending {
+                Button(CapsStackText.resource(.retrySummary), action: retry)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canRetry)
+            }
 
             Menu {
                 Button(CapsStackText.resource(.exportMarkdown), action: export)
@@ -378,6 +383,7 @@ private struct SessionHeaderCard: View {
                 Image(systemName: "ellipsis.circle")
                     .frame(width: 30, height: 30)
             }
+            .accessibilityLabel(CapsStackText.resolve(.briefActions))
             .menuStyle(.borderlessButton)
             .fixedSize()
         }
@@ -411,11 +417,8 @@ private struct ReturnBriefView: View {
     @State private var showsCollectionNotes = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 34) {
+        VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 12) {
-                Text(CapsStackText.resource(.returnBrief))
-                    .font(.system(size: 40, weight: .bold))
-
                 if let summary = entry.summary {
                     Text(summary.overview)
                         .font(.callout)
@@ -426,24 +429,17 @@ private struct ReturnBriefView: View {
             }
 
             if let summary = entry.summary {
-                BriefSection(
-                    title: CapsStackText.resolve(.progress),
-                    symbolName: "scope",
-                    items: summary.progress,
-                    checklist: false
-                )
-                BriefSection(
-                    title: CapsStackText.resolve(.decisions),
-                    symbolName: "checkmark",
-                    items: summary.decisions,
-                    checklist: false
-                )
-                BriefSection(
-                    title: CapsStackText.resolve(.nextSteps),
-                    symbolName: "arrow.right",
-                    items: summary.nextSteps,
-                    checklist: true
-                )
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        actionSections(summary).frame(minWidth: 280, maxWidth: .infinity, alignment: .topLeading)
+                    }
+                    VStack(alignment: .leading, spacing: 16) { actionSections(summary) }
+                }
+                Divider()
+                BriefSection(title: CapsStackText.resolve(.progress), symbolName: "checkmark.circle",
+                             items: summary.progress, checklist: false)
+                BriefSection(title: CapsStackText.resolve(.decisions), symbolName: "arrow.triangle.branch",
+                             items: summary.decisions, checklist: false)
 
                 if !summary.projects.isEmpty {
                     ProjectBriefsView(projects: summary.projects)
@@ -451,16 +447,22 @@ private struct ReturnBriefView: View {
                     LegacySessionBriefsView(sessions: summary.sessions)
                 }
 
-                if !summary.currentState.isEmpty || !summary.blockers.isEmpty {
+                if !summary.currentState.isEmpty {
                     supplementalSections(summary)
                 }
             } else if entry.status == .pending {
                 VStack(alignment: .leading, spacing: 10) {
                     Label(CapsStackText.resource(.summaryUnavailable), systemImage: "exclamationmark.triangle")
                         .font(.headline)
-                    Text(entry.errorMessage ?? CapsStackText.resolve(.checkSummarizerTryAgain))
+                    Text(CapsStackText.resource(.checkSummarizerTryAgain))
                         .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    if let error = entry.errorMessage {
+                        DisclosureGroup(CapsStackText.resource(.details)) {
+                            Text(error).font(.caption.monospaced()).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 8)
+                        }
+                    }
                 }
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -534,13 +536,35 @@ private struct ReturnBriefView: View {
     }
 
     @ViewBuilder
+    private func actionSections(_ summary: SummaryDocument) -> some View {
+        if !summary.nextSteps.isEmpty {
+            BriefSection(title: CapsStackText.resolve(.nextSteps), symbolName: "arrow.right.circle.fill",
+                         items: summary.nextSteps, checklist: false)
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(BrandPalette.BriefTheme.signal.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        }
+        if !summary.blockers.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(CapsStackText.resource(.blockers), systemImage: "exclamationmark.circle")
+                    .font(.headline)
+                    .foregroundStyle(.orange)
+                ForEach(Array(summary.blockers.enumerated()), id: \.offset) { _, item in
+                    Text(item).font(.callout).lineSpacing(4).textSelection(.enabled)
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    @ViewBuilder
     private func supplementalSections(_ summary: SummaryDocument) -> some View {
         VStack(alignment: .leading, spacing: 20) {
             if !summary.currentState.isEmpty {
                 CompactList(title: CapsStackText.resolve(.currentState), items: summary.currentState)
-            }
-            if !summary.blockers.isEmpty {
-                CompactList(title: CapsStackText.resolve(.blockers), items: summary.blockers)
             }
         }
     }

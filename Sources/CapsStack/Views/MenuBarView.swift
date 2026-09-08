@@ -46,12 +46,15 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button(statusActionTitle) {
+        Button {
             if controller.phase == .away {
                 controller.endAwayManually()
             } else if controller.phase != .summarizing {
                 controller.beginAwayManually()
             }
+        }
+        label: {
+            Label(statusActionTitle, systemImage: controller.phase == .away ? "arrow.uturn.backward" : "capslock")
         }
         .disabled(
             !controller.isCapsStackEnabled
@@ -66,8 +69,10 @@ struct MenuBarView: View {
 
         Divider()
 
-        Button(CapsStackText.resource(.openHistory)) {
+        Button {
             activateAndOpenWindow(id: "history")
+        } label: {
+            Label(CapsStackText.resource(.openHistory), systemImage: "text.page")
         }
         .keyboardShortcut("o", modifiers: [.command])
 

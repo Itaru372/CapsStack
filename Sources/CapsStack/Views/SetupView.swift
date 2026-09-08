@@ -19,6 +19,12 @@ struct SetupView: View {
     @AppStorage(PreferenceKeys.primarySummarizer) private var primarySummarizer = ""
     @State private var currentStep: SetupStep = .collectors
 
+    init(controller: AppController, isCompleted: Binding<Bool>, initialStep: SetupStep = .collectors) {
+        self.controller = controller
+        _isCompleted = isCompleted
+        _currentStep = State(initialValue: initialStep)
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             introduction
@@ -26,11 +32,13 @@ struct SetupView: View {
             VStack(alignment: .leading, spacing: 24) {
                 setupHeader
 
-                currentStepContent
-                    .id(currentStep)
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
-
-                Spacer(minLength: 20)
+                ScrollView {
+                    currentStepContent
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id(currentStep)
+                        .padding(.bottom, 12)
+                }
+                Divider()
                 footer
             }
             .padding(36)
@@ -38,8 +46,8 @@ struct SetupView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .animation(.easeInOut(duration: 0.2), value: currentStep)
         }
+        .frame(minWidth: 940, minHeight: 600)
         .background(BrandPalette.BriefTheme.canvas.ignoresSafeArea())
-        .preferredColorScheme(.dark)
         .tint(BrandPalette.BriefTheme.signal)
         .task {
             await controller.refreshCLIStatuses()
@@ -52,11 +60,14 @@ struct SetupView: View {
 
     private var introduction: some View {
         VStack(alignment: .leading, spacing: 24) {
-            BrandAppIcon(size: 58)
+            HStack(spacing: 12) {
+                BrandAppIcon(size: 44)
+                Text("CapsStack").font(.title3.weight(.semibold))
+            }
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(CapsStackText.resource(.setupIntroduction))
-                    .font(.system(size: 32, weight: .bold, design: .serif))
+                    .font(.system(size: 32, weight: .bold, design: .default))
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(CapsStackText.resource(.setupDescription))
@@ -85,8 +96,8 @@ struct SetupView: View {
 
     private var setupHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(CapsStackText.resource(.setup))
-                .font(.system(size: 28, weight: .bold, design: .serif))
+            Text(currentStep.title)
+                .font(.system(size: 28, weight: .bold))
             Text(CapsStackText.format(
                 .stepOf,
                 currentStep.rawValue + 1,
@@ -370,11 +381,11 @@ struct SetupView: View {
                 if step.rawValue < currentStep.rawValue {
                     Image(systemName: "checkmark")
                         .font(.caption.bold())
-                        .foregroundStyle(Color.black)
+                        .foregroundStyle(BrandPalette.BriefTheme.canvas)
                 } else {
                     Text("\(step.rawValue + 1)")
                         .font(.caption.bold().monospacedDigit())
-                        .foregroundStyle(step == currentStep ? Color.black : Color.secondary)
+                        .foregroundStyle(step == currentStep ? BrandPalette.BriefTheme.canvas : Color.secondary)
                 }
             }
             .frame(width: 24, height: 24)
@@ -422,7 +433,7 @@ struct SetupView: View {
     }
 }
 
-private enum SetupStep: Int, CaseIterable, Identifiable {
+enum SetupStep: Int, CaseIterable, Identifiable {
     case collectors
     case summarizer
     case telemetry
@@ -462,7 +473,7 @@ private struct SetupSection<Content: View>: View {
             HStack(spacing: 10) {
                 Text("\(number)")
                     .font(.caption.bold().monospacedDigit())
-                    .foregroundStyle(Color.black)
+                    .foregroundStyle(BrandPalette.BriefTheme.canvas)
                     .frame(width: 24, height: 24)
                     .background(BrandPalette.BriefTheme.signal, in: Circle())
                     .accessibilityHidden(true)

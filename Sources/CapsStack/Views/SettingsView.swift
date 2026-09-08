@@ -5,12 +5,23 @@ struct SettingsView: View {
     @ObservedObject var controller: AppController
     @StateObject private var launchAtLogin = LaunchAtLoginService()
     @State private var selectedSection: SettingsSection = .collectors
+
+    init(controller: AppController, initialSection: SettingsSection = .collectors) {
+        self.controller = controller
+        _selectedSection = State(initialValue: initialSection)
+    }
     @State private var searchText = ""
     @State private var showsClearHistoryConfirmation = false
 
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    BrandAppIcon(size: 30)
+                    Text("CapsStack").font(.headline)
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 22)
                 TextField(CapsStackText.resolve(.searchSettings), text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.callout)
@@ -49,22 +60,34 @@ struct SettingsView: View {
                 }
 
                 Spacer(minLength: 0)
+                Label(CapsStackText.resource(.historyOnlyThisMac), systemImage: "externaldrive")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(18)
             }
-            .frame(width: 236)
+            .frame(width: 220)
             .background(BrandPalette.BriefTheme.panel.ignoresSafeArea(edges: .vertical))
 
             Rectangle()
                 .fill(BrandPalette.BriefTheme.border)
                 .frame(width: 1)
 
-            detail
-                .padding(26)
+            Group {
+                if filteredSections.isEmpty {
+                    ContentUnavailableView(CapsStackText.resource(.noSettingsResults),
+                        systemImage: "magnifyingglass",
+                        description: Text(CapsStackText.resource(.trySettingsSearch)))
+                } else {
+                    detail
+                }
+            }
+                .padding(28)
                 .frame(maxWidth: 780, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(minWidth: 900, idealWidth: 980, minHeight: 600, idealHeight: 680)
         .background(BrandPalette.BriefTheme.canvas.ignoresSafeArea())
-        .preferredColorScheme(.dark)
         .tint(BrandPalette.BriefTheme.signal)
         .confirmationDialog(
             CapsStackText.resource(.deleteAllHistoryConfirmation),
@@ -96,9 +119,15 @@ struct SettingsView: View {
                 CollectorSettingsView(controller: controller, searchText: searchText)
             }
         case .summarizers:
-            SummarizerSettingsView(controller: controller)
+            VStack(alignment: .leading, spacing: 0) {
+                SettingsHeader(title: CapsStackText.resolve(.summarizer), message: CapsStackText.resolve(.summarizerPurpose))
+                SummarizerSettingsView(controller: controller)
+            }
         case .general:
-            GeneralSettingsView(controller: controller, launchAtLogin: launchAtLogin)
+            VStack(alignment: .leading, spacing: 0) {
+                SettingsHeader(title: CapsStackText.resolve(.general), message: CapsStackText.resolve(.generalPurpose))
+                GeneralSettingsView(controller: controller, launchAtLogin: launchAtLogin)
+            }
         case .notifications:
             SettingsScrollView {
                 NotificationSettingsView(controller: controller)
@@ -147,7 +176,7 @@ private struct SettingsScrollView<Content: View>: View {
     }
 }
 
-private enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
+enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
     case collectors
     case summarizers
     case general
@@ -202,13 +231,13 @@ private struct SettingsHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title)
-                .font(.title2.bold())
+                .font(.system(size: 26, weight: .bold))
             Text(message)
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.bottom, 18)
+        .padding(.bottom, 12)
     }
 }
 
@@ -407,6 +436,7 @@ private struct SummarizerSettingsView: View {
                     }
                 }
                 .pickerStyle(.radioGroup)
+                .fixedSize(horizontal: false, vertical: true)
 
                 if !unavailableSummarizerKinds.isEmpty {
                     Button(CapsStackText.resource(
@@ -835,7 +865,7 @@ private struct HotkeySettingsView: View {
                             .font(.body.monospacedDigit().weight(.medium))
                             .padding(.horizontal, 9)
                             .padding(.vertical, 4)
-                            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+                            .background(BrandPalette.BriefTheme.panel, in: RoundedRectangle(cornerRadius: 6))
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 13)
@@ -930,8 +960,8 @@ private struct DataManagementSettingsView: View {
 
             Spacer()
 
-            Button(buttonTitle, action: action)
-                .buttonStyle(.borderedProminent)
+            Button(buttonTitle, role: destructive ? .destructive : nil, action: action)
+                .buttonStyle(.bordered)
                 .tint(destructive ? .red : BrandPalette.BriefTheme.signal)
         }
         .padding(16)

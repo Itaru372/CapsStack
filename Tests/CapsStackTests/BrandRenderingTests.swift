@@ -8,6 +8,7 @@ final class BrandRenderingTests: XCTestCase {
     func testBrandedSurfacesRender() throws {
         let suiteName = "CapsStackBrandRenderingTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.set(false, forKey: PreferenceKeys.capsStackEnabled)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let historyDirectory = FileManager.default.temporaryDirectory
@@ -24,8 +25,9 @@ final class BrandRenderingTests: XCTestCase {
 
         let quickMemo = try render(
             QuickMemoView()
-                .frame(width: 468, height: 306),
-            size: CGSize(width: 468, height: 306)
+                .defaultAppStorage(defaults)
+                .frame(width: 468, height: 330),
+            size: CGSize(width: 468, height: 330)
         )
         let settings = try render(
             SettingsView(controller: controller)
@@ -45,7 +47,7 @@ final class BrandRenderingTests: XCTestCase {
             size: CGSize(width: 1120, height: 740)
         )
 
-        XCTAssertEqual(quickMemo.size, CGSize(width: 468, height: 306))
+        XCTAssertEqual(quickMemo.size, CGSize(width: 468, height: 330))
         XCTAssertEqual(settings.size, CGSize(width: 980, height: 680))
         XCTAssertEqual(setup.size, CGSize(width: 1120, height: 740))
         XCTAssertEqual(history.size, CGSize(width: 1120, height: 740))
@@ -60,6 +62,44 @@ final class BrandRenderingTests: XCTestCase {
             try writePNG(settings, to: outputDirectory.appendingPathComponent("settings.png"))
             try writePNG(setup, to: outputDirectory.appendingPathComponent("setup.png"))
             try writePNG(history, to: outputDirectory.appendingPathComponent("history.png"))
+        }
+    }
+
+    func testAllPagesInBothAppearances() async throws {
+        let suite = "CapsStackVisualQA.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(false, forKey: PreferenceKeys.capsStackEnabled)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = HistoryStore(directoryURL: directory)
+        try makeSampleEntry(in: store)
+        let controller = AppController(defaults: defaults, resolver: VisualQAResolver(),
+                                       historyStore: store, notifications: SilentNotificationService())
+        controller.reloadHistory()
+        await controller.refreshCLIStatuses()
+        let output = ProcessInfo.processInfo.environment["CAPSSTACK_QA_OUTPUT"].map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        }
+        if let output { try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true) }
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .light ? "light" : "dark"
+            var pages: [(String, AnyView, CGSize)] = []
+            for section in SettingsSection.allCases {
+                pages.append(("settings-\(section.rawValue)", AnyView(SettingsView(controller: controller, initialSection: section)), CGSize(width: 980, height: 680)))
+            }
+            for step in SetupStep.allCases {
+                pages.append(("setup-\(step.rawValue + 1)", AnyView(SetupView(controller: controller, isCompleted: .constant(false), initialStep: step)), CGSize(width: 1120, height: 740)))
+            }
+            pages.append(("history", AnyView(HistoryView(controller: controller)), CGSize(width: 1120, height: 740)))
+            pages.append(("memo", AnyView(QuickMemoView()), CGSize(width: 468, height: 330)))
+            pages.append(("about", AnyView(AboutView()), CGSize(width: 420, height: 410)))
+            for (name, page, size) in pages {
+                let snapshot = try render(page.defaultAppStorage(defaults).environment(\.colorScheme, scheme)
+                    .frame(width: size.width, height: size.height), size: size)
+                XCTAssertEqual(snapshot.size, size, name)
+                if let output { try writePNG(snapshot, to: output.appendingPathComponent("\(name)-\(suffix).png")) }
+            }
         }
     }
 
@@ -149,4 +189,15 @@ private final class SilentNotificationService: NotificationServicing, @unchecked
     ) async {}
 
     func notifyFailure(message: String, interval: AwayInterval?) async {}
+}
+
+private struct VisualQAResolver: CLIResolving {
+    func executableURL(for kind: CLIKind, override: String?) -> URL? { nil }
+    func logDirectory(for kind: CLIKind) -> URL { URL(fileURLWithPath: "/tmp/capsstack-visual-fixture") }
+    func status(for kind: CLIKind, override: String?) -> CLIStatus {
+        let installed = [.codex, .claudeCode, .opencode].contains(kind)
+        return CLIStatus(kind: kind, executablePath: installed ? "/fixture/\(kind.rawValue)" : nil,
+                         version: installed ? "CLI" : nil, logDirectory: logDirectory(for: kind).path,
+                         canReadLogs: installed)
+    }
 }

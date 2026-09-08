@@ -20,7 +20,7 @@ struct QuickMemoView: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(CapsStackText.resource(.awayMemo))
+                    Text(CapsStackText.resource(.memoHeading))
                         .font(.title3.bold())
 
                     Text(CapsStackText.resource(.quickMemoDescription))
@@ -37,7 +37,7 @@ struct QuickMemoView: View {
                 if quickMemoText.isEmpty {
                     Text(CapsStackText.resource(.quickMemoPlaceholder))
                         .font(.body)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 13)
                         .padding(.vertical, 14)
                         .allowsHitTesting(false)
@@ -50,7 +50,7 @@ struct QuickMemoView: View {
                     .focused($isEditorFocused)
                     .accessibilityLabel(CapsStackText.resolve(.awayMemo))
             }
-            .frame(width: 420, height: 144)
+            .frame(width: 420, height: 168)
             .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 10))
 
             HStack {
@@ -69,12 +69,12 @@ struct QuickMemoView: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
             }
         }
         .padding(24)
         .fixedSize()
         .background(BrandPalette.BriefTheme.canvas.ignoresSafeArea())
-        .preferredColorScheme(.dark)
         .tint(BrandPalette.BriefTheme.signal)
         .onAppear {
             isEditorFocused = true

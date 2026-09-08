@@ -31,14 +31,14 @@ enum BrandPalette {
         dark: rgb(0x2D, 0x28, 0x30)
     )
 
-    /// The approved return-brief design is intentionally dark-only. These fixed surfaces
-    /// keep cards readable when the system appearance changes around the app window.
+    /// Quiet, semantic surfaces follow the Mac's appearance. Accent is reserved for
+    /// selection and the next action; warnings retain their own semantic color.
     enum BriefTheme {
-        static let canvas = rgbColor(0x10, 0x10, 0x13)
-        static let panel = rgbColor(0x18, 0x18, 0x1C)
-        static let card = rgbColor(0x21, 0x21, 0x26)
-        static let border = Color.white.opacity(0.08)
-        static let signal = rgbColor(0xC6, 0xF2, 0x4E)
+        static let canvas = adaptive(light: rgb(0xF8, 0xFA, 0xFA), dark: rgb(0x14, 0x19, 0x1C))
+        static let panel = adaptive(light: rgb(0xEF, 0xF3, 0xF3), dark: rgb(0x1A, 0x21, 0x24))
+        static let card = adaptive(light: rgb(0xFF, 0xFF, 0xFF), dark: rgb(0x22, 0x2B, 0x2E))
+        static let border = Color.primary.opacity(0.10)
+        static let signal = adaptive(light: rgb(0x08, 0x70, 0x69), dark: rgb(0x80, 0xD9, 0xC9))
     }
 
     private static func rgb(_ red: Int, _ green: Int, _ blue: Int) -> NSColor {
