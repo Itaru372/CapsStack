@@ -199,6 +199,32 @@ final class HistoryStore: @unchecked Sendable {
         try loadPending(id)
     }
 
+    /// Returns whether the raw artifact is present and decodable without changing either the
+    /// history index or the pending file. The recovery UI uses this to keep malformed artifacts
+    /// out of both manual and unattended retry actions.
+    func pendingArtifactAvailability(for id: UUID?) -> PendingArtifactAvailability {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let id else { return .missing }
+        return pendingArtifactAvailabilityUnlocked(for: id)
+    }
+
+    /// Builds recovery assessments without changing either the history index or any pending file.
+    func pendingBriefAssessments(for entries: [HistoryEntry]) -> [PendingBriefAssessment] {
+        lock.lock()
+        defer { lock.unlock() }
+
+        return entries
+            .filter { $0.status == .pending }
+            .map { entry in
+                PendingBriefAssessment(
+                    entry: entry,
+                    cause: PendingBriefCause.classify(errorMessage: entry.errorMessage),
+                    artifactAvailability: pendingArtifactAvailabilityUnlocked(for: entry.pendingArtifactID)
+                )
+            }
+    }
+
     func deletePending(_ id: UUID) throws {
         lock.lock()
         defer { lock.unlock() }
@@ -310,6 +336,18 @@ final class HistoryStore: @unchecked Sendable {
 
     private func pendingURL(for id: UUID) -> URL {
         pendingDirectoryURL.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    private func pendingArtifactAvailabilityUnlocked(for id: UUID?) -> PendingArtifactAvailability {
+        guard let id else { return .missing }
+        let url = pendingURL(for: id)
+        guard fileManager.fileExists(atPath: url.path) else { return .missing }
+        do {
+            _ = try decoder.decode(CollectionBatch.self, from: Data(contentsOf: url))
+            return .available
+        } catch {
+            return .malformed
+        }
     }
 
     private func sources(for batch: CollectionBatch) -> [CLIKind] {

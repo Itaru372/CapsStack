@@ -21,6 +21,8 @@ struct HistoryView: View {
     @State private var displayedMonth = Calendar.current.startOfMonth(for: .now)
     @State private var exportMessage: String?
     @State private var entryPendingDeletion: HistoryEntry?
+    @State private var presentedSheet: HistorySheet?
+    @State private var showsBulkRetryConfirmation = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -29,6 +31,16 @@ struct HistoryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     workspaceHeader
+                    if !controller.pendingBriefAssessments.isEmpty {
+                        PendingRecoveryCard(
+                            assessments: controller.pendingBriefAssessments,
+                            progress: controller.pendingRetryProgress,
+                            review: { presentedSheet = .pendingReview },
+                            requestRetry: { showsBulkRetryConfirmation = true },
+                            cancelRetry: { controller.cancelPendingBriefRetry() },
+                            canRetry: canStartBulkRetry
+                        )
+                    }
                     if let entry = selectedEntry {
                         SessionHeaderCard(
                             entry: entry,
@@ -86,6 +98,34 @@ struct HistoryView: View {
             }
             Button(CapsStackText.resource(.cancel), role: .cancel) {
                 entryPendingDeletion = nil
+            }
+        }
+        .confirmationDialog(
+            CapsStackText.format(
+                .retryEligiblePendingConfirmation,
+                retryablePendingCount
+            ),
+            isPresented: $showsBulkRetryConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(CapsStackText.format(.retryEligiblePending, retryablePendingCount)) {
+                controller.retryEligiblePendingBriefs()
+            }
+            Button(CapsStackText.resource(.cancel), role: .cancel) {}
+        } message: {
+            Text(CapsStackText.resource(.retryEligiblePendingMessage))
+        }
+        .sheet(item: $presentedSheet) { sheet in
+            switch sheet {
+            case .pendingReview:
+                PendingBriefReviewView(
+                    controller: controller,
+                    requestRetry: {
+                        presentedSheet = nil
+                        showsBulkRetryConfirmation = true
+                    }
+                )
+                .frame(minWidth: 700, minHeight: 560)
             }
         }
         .onAppear {
@@ -251,12 +291,26 @@ struct HistoryView: View {
     }
 
     private func canRetry(_ entry: HistoryEntry) -> Bool {
+        guard controller.isCapsStackEnabled,
+              controller.phase != .summarizing,
+              controller.phase != .away,
+              controller.phase != .disabled,
+              let assessment = controller.pendingBriefAssessments.first(where: { $0.entry.id == entry.id })
+        else { return false }
+        return assessment.isManuallyRetryable
+    }
+
+    private var retryablePendingCount: Int {
+        controller.pendingBriefAssessments.filter { $0.isBulkRetryable }.count
+    }
+
+    private var canStartBulkRetry: Bool {
         controller.isCapsStackEnabled
             && controller.phase != .summarizing
             && controller.phase != .away
             && controller.phase != .disabled
-            && entry.status == .pending
-            && entry.pendingArtifactID != nil
+            && controller.pendingRetryProgress == nil
+            && retryablePendingCount > 0
     }
 
     private func shiftMonth(_ direction: Int) {
@@ -326,6 +380,200 @@ private struct DayBucket: Identifiable {
     let entries: [HistoryEntry]
 
     var id: Date { dayStart }
+}
+
+private enum HistorySheet: Identifiable {
+    case pendingReview
+
+    var id: String { "pending-review" }
+}
+
+private struct PendingRecoveryCard: View {
+    let assessments: [PendingBriefAssessment]
+    let progress: PendingRetryProgress?
+    let review: () -> Void
+    let requestRetry: () -> Void
+    let cancelRetry: () -> Void
+    let canRetry: Bool
+
+    private var retryableCount: Int {
+        assessments.filter { $0.isBulkRetryable }.count
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Label(CapsStackText.resource(.pendingBriefs), systemImage: "exclamationmark.triangle.fill")
+                    .font(.headline)
+                    .foregroundStyle(.orange)
+                Text(CapsStackText.format(.pendingBriefCount, assessments.count))
+                    .font(.callout.weight(.medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(CapsStackText.resource(.reviewPendingBriefs), action: review)
+                    .buttonStyle(.borderless)
+            }
+
+            Text(CapsStackText.resource(.pendingBriefsDescription))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 145), alignment: .leading)],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(PendingBriefCause.allCases) { cause in
+                    let count = assessments.filter { $0.cause == cause }.count
+                    if count > 0 {
+                        Label("\(cause.displayName) \(count)", systemImage: cause.systemImageName)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(cause == .timeout ? BrandPalette.BriefTheme.signal : .secondary)
+                            .accessibilityLabel("\(cause.displayName), \(count)")
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                if let progress {
+                    ProgressView(value: Double(progress.completed), total: Double(max(1, progress.total)))
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 180)
+                    Text(CapsStackText.format(.pendingRetryProgress, progress.completed, progress.total))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Button(CapsStackText.resource(.stopRetrying), action: cancelRetry)
+                        .buttonStyle(.borderless)
+                } else if retryableCount > 0 {
+                    Label(CapsStackText.format(.retryEligiblePending, retryableCount), systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(BrandPalette.BriefTheme.signal)
+                    Spacer()
+                    Button(CapsStackText.format(.retryEligiblePending, retryableCount), action: requestRetry)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canRetry)
+                } else {
+                    Text(CapsStackText.resource(.retryNoEligiblePending))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(BrandPalette.BriefTheme.border))
+    }
+}
+
+private struct PendingBriefReviewView: View {
+    @ObservedObject var controller: AppController
+    let requestRetry: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(CapsStackText.resource(.pendingBriefs))
+                        .font(.title2.bold())
+                    Text(CapsStackText.format(.pendingBriefCount, controller.pendingBriefAssessments.count))
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(CapsStackText.resource(.close)) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+
+            Text(CapsStackText.resource(.pendingBriefsDescription))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(PendingBriefCause.allCases) { cause in
+                        let entries = controller.pendingBriefAssessments.filter { $0.cause == cause }
+                        if !entries.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label("\(cause.displayName) · \(entries.count)", systemImage: cause.systemImageName)
+                                    .font(.headline)
+                                    .foregroundStyle(cause == .timeout ? BrandPalette.BriefTheme.signal : .secondary)
+                                ForEach(entries) { assessment in
+                                    PendingBriefRow(assessment: assessment)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                if let progress = controller.pendingRetryProgress {
+                    ProgressView(value: Double(progress.completed), total: Double(max(1, progress.total)))
+                        .frame(width: 160)
+                    Text(CapsStackText.format(.pendingRetryProgress, progress.completed, progress.total))
+                        .font(.caption.monospacedDigit())
+                    Button(CapsStackText.resource(.stopRetrying)) {
+                        controller.cancelPendingBriefRetry()
+                    }
+                } else if controller.pendingBriefAssessments.contains(where: { $0.isBulkRetryable }) {
+                    Button(CapsStackText.format(
+                        .retryEligiblePending,
+                        controller.pendingBriefAssessments.filter { $0.isBulkRetryable }.count
+                    )) {
+                        requestRetry()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                Button(CapsStackText.resource(.close)) { dismiss() }
+            }
+        }
+        .padding(24)
+        .background(BrandPalette.BriefTheme.canvas)
+    }
+}
+
+private struct PendingBriefRow: View {
+    let assessment: PendingBriefAssessment
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(
+                    "\(assessment.entry.interval.start, format: .dateTime.year().month().day().hour().minute()) – \(assessment.entry.interval.end, format: .dateTime.hour().minute())"
+                )
+                .font(.callout.weight(.medium).monospacedDigit())
+                Spacer()
+                if assessment.isManuallyRetryable {
+                    Label(CapsStackText.resource(.pendingRetryable), systemImage: "checkmark.circle")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(BrandPalette.BriefTheme.signal)
+                } else if !assessment.hasArtifact {
+                    Label(CapsStackText.resource(.pendingArtifactUnavailable), systemImage: "doc.badge.exclamationmark")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(
+                CapsStackText.format(.sessionsCount, assessment.entry.sessionCount)
+                    + " · " + DurationFormatter.string(from: assessment.entry.interval.duration)
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if let errorMessage = assessment.entry.errorMessage {
+                Text(errorMessage)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BrandPalette.BriefTheme.panel, in: RoundedRectangle(cornerRadius: 9))
+    }
 }
 
 private struct SessionHeaderCard: View {

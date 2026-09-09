@@ -17,6 +17,8 @@ final class AppController: ObservableObject {
     @Published private(set) var awayStartedAt: Date?
     @Published private(set) var activeSessionCount = 0
     @Published private(set) var history: [HistoryEntry] = []
+    @Published private(set) var pendingBriefAssessments: [PendingBriefAssessment] = []
+    @Published private(set) var pendingRetryProgress: PendingRetryProgress?
     @Published private(set) var cliStatuses: [CLIKind: CLIStatus] = [:]
     @Published private(set) var cliModels: [CLIKind: [CLIModel]] = [:]
     @Published private(set) var cliModelFetchStates: [CLIKind: CLIModelFetchState] = [:]
@@ -273,9 +275,13 @@ final class AppController: ObservableObject {
 
     func retry(_ entry: HistoryEntry) {
         guard isCapsStackEnabled,
+              !showsInMemoryDemoData,
               phase != .summarizing,
               phase != .away,
               phase != .disabled,
+              pendingRetryProgress == nil,
+              let assessment = pendingBriefAssessments.first(where: { $0.entry.id == entry.id }),
+              assessment.isManuallyRetryable,
               let pendingID = entry.pendingArtifactID else { return }
 
         // Set the phase before the first suspension point. Without this synchronous guard,
@@ -294,7 +300,7 @@ final class AppController: ObservableObject {
                     throw HistoryStoreError.pendingArtifactNotFound(pendingID)
                 }
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
-                await summarize(batch: batch, replacing: entry, workflowID: workflowID, isRetry: true)
+                _ = await summarize(batch: batch, replacing: entry, workflowID: workflowID, isRetry: true)
             } catch {
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
                 telemetry.capture(.summaryRetryFailed(
@@ -308,6 +314,110 @@ final class AppController: ObservableObject {
             }
         }
         activeWorkflowTask = task
+    }
+
+    /// Starts one serialized retry workflow for the strict, unattended-safe subset. The
+    /// assessments are rechecked at load time and a missing or malformed artifact is skipped;
+    /// no pending row is removed until `HistoryStore.saveCompleted` has atomically written its
+    /// replacement history entry.
+    func retryEligiblePendingBriefs() {
+        guard isCapsStackEnabled,
+              !showsInMemoryDemoData,
+              phase != .summarizing,
+              phase != .away,
+              phase != .disabled,
+              pendingRetryProgress == nil else { return }
+
+        let candidates = pendingBriefAssessments
+            .filter { $0.isBulkRetryable }
+            .map(\.entry)
+        guard !candidates.isEmpty else { return }
+
+        phase = .summarizing
+        lastError = nil
+        pendingRetryProgress = PendingRetryProgress(total: candidates.count)
+        let workflowID = beginWorkflow()
+        telemetry.capture(.summaryRetryStarted)
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { self.finishWorkflow(workflowID) }
+
+            var succeeded = 0
+            var failed = 0
+            for entry in candidates {
+                guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+                pendingRetryProgress = PendingRetryProgress(
+                    total: candidates.count,
+                    completed: succeeded + failed,
+                    succeeded: succeeded,
+                    failed: failed,
+                    currentEntryID: entry.id
+                )
+
+                let didComplete: Bool
+                do {
+                    guard let pendingID = entry.pendingArtifactID,
+                          let batch = try historyStore.loadPending(pendingID) else {
+                        throw HistoryStoreError.pendingArtifactNotFound(entry.pendingArtifactID ?? entry.id)
+                    }
+                    guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+                    didComplete = await summarize(
+                        batch: batch,
+                        replacing: entry,
+                        workflowID: workflowID,
+                        isRetry: true,
+                        preservesWorkflowState: true,
+                        notifies: false
+                    )
+                } catch {
+                    guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+                    telemetry.capture(.summaryRetryFailed(
+                        stage: .retry,
+                        code: TelemetryFailureCode.from(error: error),
+                        provider: entry.provider
+                    ))
+                    didComplete = false
+                }
+
+                guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+                if didComplete {
+                    succeeded += 1
+                } else {
+                    failed += 1
+                }
+                pendingRetryProgress = PendingRetryProgress(
+                    total: candidates.count,
+                    completed: succeeded + failed,
+                    succeeded: succeeded,
+                    failed: failed,
+                    currentEntryID: nil
+                )
+            }
+
+            guard isCurrentWorkflow(workflowID) else { return }
+            reloadHistory()
+            if failed == 0 {
+                phase = .idle
+                lastError = nil
+            } else {
+                phase = .failed
+                lastError = CapsStackText.format(
+                    .pendingRetryFinishedWithFailures,
+                    failed,
+                    candidates.count,
+                    locale: locale
+                )
+            }
+            pendingRetryProgress = nil
+        }
+        activeWorkflowTask = task
+    }
+
+    func cancelPendingBriefRetry() {
+        guard pendingRetryProgress != nil else { return }
+        cancelActiveWorkflow()
+        pendingRetryProgress = nil
     }
 
     func requestNotificationAuthorization() async {
@@ -716,7 +826,7 @@ final class AppController: ObservableObject {
                 }
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
                 reloadHistory()
-                await summarize(batch: batch, replacing: pending, workflowID: workflowID)
+                _ = await summarize(batch: batch, replacing: pending, workflowID: workflowID)
             } catch {
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
                 telemetry.capture(.briefFailed(
@@ -738,8 +848,10 @@ final class AppController: ObservableObject {
         batch: CollectionBatch,
         replacing pendingEntry: HistoryEntry,
         workflowID: UInt,
-        isRetry: Bool = false
-    ) async {
+        isRetry: Bool = false,
+        preservesWorkflowState: Bool = false,
+        notifies: Bool = true
+    ) async -> Bool {
         let summaryStartedAt = Date()
         var failureStage: TelemetryFailureStage = .summarization
         do {
@@ -747,7 +859,7 @@ final class AppController: ObservableObject {
                 batch: batch,
                 preferences: SummarizerPreferences(defaults: defaults)
             )
-            guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+            guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return false }
             failureStage = .persistence
             let completedEntry = try historyStore.saveCompleted(
                 batch: batch,
@@ -772,13 +884,18 @@ final class AppController: ObservableObject {
             }
             recordFirstReturnBriefCompleted(for: completedEntry, summaryDuration: summaryDuration)
             reloadHistory()
-            phase = .idle
-            lastError = nil
-            await notifications.notify(
-                outcome: outcome,
-                interval: batch.interval,
-                sessionCount: batch.sessions.count
-            )
+            if !preservesWorkflowState {
+                phase = .idle
+                lastError = nil
+            }
+            if notifies {
+                await notifications.notify(
+                    outcome: outcome,
+                    interval: batch.interval,
+                    sessionCount: batch.sessions.count
+                )
+            }
+            return true
         } catch {
             let summaryErrorMessage = error.localizedDescription
             let failed = HistoryEntry(
@@ -792,7 +909,7 @@ final class AppController: ObservableObject {
                 pendingArtifactID: pendingEntry.pendingArtifactID,
                 quickMemo: pendingEntry.quickMemo
             )
-            guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
+            guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return false }
             let failureCode = TelemetryFailureCode.from(error: error)
             if isRetry {
                 telemetry.capture(.summaryRetryFailed(
@@ -814,9 +931,14 @@ final class AppController: ObservableObject {
                 presentedErrorMessage += "\n" + CapsStackText.resolve(.couldNotSaveRetryData, locale: locale) + ": \(error.localizedDescription)"
             }
             reloadHistory()
-            phase = .failed
-            lastError = presentedErrorMessage
-            await notifications.notifyFailure(message: presentedErrorMessage, interval: batch.interval)
+            if !preservesWorkflowState {
+                phase = .failed
+                lastError = presentedErrorMessage
+                if notifies {
+                    await notifications.notifyFailure(message: presentedErrorMessage, interval: batch.interval)
+                }
+            }
+            return false
         }
     }
 
@@ -876,6 +998,7 @@ final class AppController: ObservableObject {
     private func cancelActiveWorkflow() {
         activeWorkflowTask?.cancel()
         activeWorkflowTask = nil
+        pendingRetryProgress = nil
         workflowGeneration &+= 1
         if phase == .summarizing {
             phase = isCapsStackEnabled ? .idle : .disabled
@@ -915,14 +1038,17 @@ final class AppController: ObservableObject {
     func reloadHistory() {
         guard !showsInMemoryDemoData else {
             history = demoEntries
+            pendingBriefAssessments = []
             isShowingDemoData = true
             return
         }
 
         do {
             history = try historyStore.load()
+            pendingBriefAssessments = historyStore.pendingBriefAssessments(for: history)
         } catch {
             history = []
+            pendingBriefAssessments = []
             lastError = error.localizedDescription
             phase = .failed
         }
