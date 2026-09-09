@@ -24,7 +24,14 @@ extension SummaryProvider {
 }
 
 enum SummaryPromptFactory {
-    static func prompt(for batch: CollectionBatch, provider: CLIKind) throws -> Data {
+    /// The prompt's default remains English for callers that explicitly use this low-level
+    /// factory (and for the existing CLI/test contract). The app passes its display locale to
+    /// each provider so generated summary values follow the same language as the UI.
+    static func prompt(
+        for batch: CollectionBatch,
+        provider: CLIKind,
+        locale: Locale = Locale(identifier: "en")
+    ) throws -> Data {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -37,9 +44,12 @@ enum SummaryPromptFactory {
         guard let payloadText = String(data: payload, encoding: .utf8) else {
             throw SummaryProviderError.invalidOutput(provider)
         }
+        let languageInstruction = locale.language.languageCode?.identifier == "ja"
+            ? "Write every natural-language summary value in Japanese, including overview, progress, currentState, decisions, blockers, nextSteps, project summaries, and session summaries."
+            : "Write every summary field in English."
         let text = """
         You are CapsStack's dedicated summarization process. Read only the JSON between BEGIN_CAPSSTACK_ARTIFACT and END_CAPSSTACK_ARTIFACT, then summarize the progress made while the user was away.
-        Write every summary field in English. Preserve proper names, code, commands, and quoted user text as written when needed for accuracy.
+        \(languageInstruction) Keep the JSON keys and required structure exactly as specified. Preserve proper names, code, commands, and quoted user text as written when needed for accuracy.
         Do not change code, run commands, inspect files, access the network, or resume or continue a source session.
         Do not infer facts that are not present in the logs. Use empty arrays for unknown sections.
         If the JSON contains quickMemo, it is context the user wrote before stepping away. Consider it alongside the session logs and reflect it in overview or nextSteps when relevant.
@@ -190,17 +200,20 @@ final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {
     private let runner: ProcessRunning
     private let timeout: TimeInterval
     private let fileManager: FileManager
+    private let locale: Locale
 
     init(
         resolver: CLIResolving = CLIResolver(),
         runner: ProcessRunning = ProcessRunner(),
         timeout: TimeInterval = 120,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        locale: Locale = CapsStackText.systemLocale
     ) {
         self.resolver = resolver
         self.runner = runner
         self.timeout = max(0.1, timeout)
         self.fileManager = fileManager
+        self.locale = locale
     }
 
     func isAvailable(executableOverride: String? = nil) -> Bool {
@@ -231,7 +244,7 @@ final class CodexSummaryProvider: SummaryProvider, @unchecked Sendable {
 
             let input: Data
             do {
-                input = try SummaryPromptFactory.prompt(for: batch, provider: .codex)
+                input = try SummaryPromptFactory.prompt(for: batch, provider: .codex, locale: locale)
             } catch {
                 throw SummaryProviderError.invalidOutput(.codex)
             }
@@ -313,19 +326,22 @@ final class ClaudeCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
     private let timeout: TimeInterval
     private let helpTimeout: TimeInterval
     private let fileManager: FileManager
+    private let locale: Locale
 
     init(
         resolver: CLIResolving = CLIResolver(),
         runner: ProcessRunning = ProcessRunner(),
         timeout: TimeInterval = 120,
         helpTimeout: TimeInterval = 10,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        locale: Locale = CapsStackText.systemLocale
     ) {
         self.resolver = resolver
         self.runner = runner
         self.timeout = max(0.1, timeout)
         self.helpTimeout = max(0.1, helpTimeout)
         self.fileManager = fileManager
+        self.locale = locale
     }
 
     func isAvailable(executableOverride: String? = nil) -> Bool {
@@ -351,7 +367,7 @@ final class ClaudeCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
             let help = await detectHelp(executable: executable, currentDirectory: tempDirectory)
             let input: Data
             do {
-                input = try SummaryPromptFactory.prompt(for: batch, provider: .claudeCode)
+                input = try SummaryPromptFactory.prompt(for: batch, provider: .claudeCode, locale: locale)
             } catch {
                 throw SummaryProviderError.invalidOutput(.claudeCode)
             }
@@ -463,17 +479,20 @@ final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
     private let runner: ProcessRunning
     private let timeout: TimeInterval
     private let fileManager: FileManager
+    private let locale: Locale
 
     init(
         resolver: CLIResolving = CLIResolver(),
         runner: ProcessRunning = ProcessRunner(),
         timeout: TimeInterval = 120,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        locale: Locale = CapsStackText.systemLocale
     ) {
         self.resolver = resolver
         self.runner = runner
         self.timeout = max(0.1, timeout)
         self.fileManager = fileManager
+        self.locale = locale
     }
 
     func isAvailable(executableOverride: String? = nil) -> Bool {
@@ -508,7 +527,7 @@ final class OpenCodeSummaryProvider: SummaryProvider, @unchecked Sendable {
             let prompt: String
             do {
                 prompt = String(
-                    decoding: try SummaryPromptFactory.prompt(for: batch, provider: .opencode),
+                    decoding: try SummaryPromptFactory.prompt(for: batch, provider: .opencode, locale: locale),
                     as: UTF8.self
                 )
             } catch {
@@ -591,17 +610,20 @@ final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
     private let runner: ProcessRunning
     private let timeout: TimeInterval
     private let fileManager: FileManager
+    private let locale: Locale
 
     init(
         resolver: CLIResolving = CLIResolver(),
         runner: ProcessRunning = ProcessRunner(),
         timeout: TimeInterval = 120,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        locale: Locale = CapsStackText.systemLocale
     ) {
         self.resolver = resolver
         self.runner = runner
         self.timeout = max(0.1, timeout)
         self.fileManager = fileManager
+        self.locale = locale
     }
 
     func isAvailable(executableOverride: String? = nil) -> Bool {
@@ -626,7 +648,7 @@ final class PiSummaryProvider: SummaryProvider, @unchecked Sendable {
 
             let input: Data
             do {
-                input = try SummaryPromptFactory.prompt(for: batch, provider: .pi)
+                input = try SummaryPromptFactory.prompt(for: batch, provider: .pi, locale: locale)
             } catch {
                 throw SummaryProviderError.invalidOutput(.pi)
             }
@@ -716,6 +738,7 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
     private let runner: ProcessRunning
     private let timeout: TimeInterval
     private let fileManager: FileManager
+    private let locale: Locale
 
     init(
         kind: CLIKind,
@@ -723,7 +746,8 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
         resolver: CLIResolving = CLIResolver(),
         runner: ProcessRunning = ProcessRunner(),
         timeout: TimeInterval = 120,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        locale: Locale = CapsStackText.systemLocale
     ) {
         self.kind = kind
         self.strategy = strategy
@@ -731,6 +755,7 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
         self.runner = runner
         self.timeout = max(0.1, timeout)
         self.fileManager = fileManager
+        self.locale = locale
     }
 
     func isAvailable(executableOverride: String? = nil) -> Bool {
@@ -753,7 +778,7 @@ final class SafeHeadlessSummaryProvider: SummaryProvider, @unchecked Sendable {
             defer { try? fileManager.removeItem(at: temporaryDirectory) }
 
             let prompt = String(
-                decoding: try SummaryPromptFactory.prompt(for: batch, provider: kind),
+                decoding: try SummaryPromptFactory.prompt(for: batch, provider: kind, locale: locale),
                 as: UTF8.self
             )
             let invocation = arguments(

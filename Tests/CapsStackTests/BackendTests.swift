@@ -1715,6 +1715,44 @@ final class BackendTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Cursorでリファクタリングしていた"))
     }
 
+    func testSummaryPromptUsesJapaneseForJapaneseLocale() throws {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let batch = CollectionBatch(
+            interval: AwayInterval(start: start, end: start.addingTimeInterval(60)),
+            sessions: [],
+            issues: []
+        )
+
+        let promptData = try SummaryPromptFactory.prompt(
+            for: batch,
+            provider: .codex,
+            locale: Locale(identifier: "ja-JP")
+        )
+        let prompt = String(decoding: promptData, as: UTF8.self)
+
+        XCTAssertTrue(prompt.contains("Write every natural-language summary value in Japanese"))
+        XCTAssertFalse(prompt.contains("Write every summary field in English"))
+    }
+
+    func testSummaryOrchestratorPassesJapaneseLocaleToProvider() async throws {
+        let runner = RecordingProcessRunner()
+        let orchestrator = SummaryOrchestrator(
+            resolver: StaticCLIResolver(),
+            runner: runner,
+            locale: Locale(identifier: "ja-JP")
+        )
+
+        _ = try await orchestrator.summarize(
+            batch: makeBatch(),
+            preferences: SummarizerPreferences(primary: .codex, automaticFallback: false)
+        )
+
+        let specification = try XCTUnwrap(runner.nonHelpSpecifications.last)
+        let prompt = String(decoding: try XCTUnwrap(specification.standardInput), as: UTF8.self)
+        XCTAssertTrue(prompt.contains("Write every natural-language summary value in Japanese"))
+        XCTAssertFalse(prompt.contains("Write every summary field in English"))
+    }
+
     func testAwayBatchPreparationAddsMemoOnlySessionWhenNoCLILogExists() {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let empty = CollectionBatch(

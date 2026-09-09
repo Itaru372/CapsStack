@@ -51,7 +51,7 @@ struct QuickMemoView: View {
                     .accessibilityLabel(CapsStackText.resolve(.awayMemo))
             }
             .frame(width: 420, height: 168)
-            .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(BrandPalette.BriefTheme.border))
 
             HStack {
                 Button(CapsStackText.resource(.clear), role: .destructive) {

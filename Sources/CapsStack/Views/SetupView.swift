@@ -142,6 +142,7 @@ struct SetupView: View {
                                         .lineLimit(1)
                                         .truncationMode(.middle)
                                 }
+                                Spacer(minLength: 12)
                             }
                         }
                         .toggleStyle(.switch)
@@ -152,7 +153,7 @@ struct SetupView: View {
                         .frame(height: 64)
                         .frame(maxWidth: .infinity)
                         .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 10))
-                        .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(BrandPalette.BriefTheme.border))
                     }
                 }
             }
@@ -224,7 +225,7 @@ struct SetupView: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(BrandPalette.BriefTheme.border))
         }
     }
 
@@ -247,10 +248,10 @@ struct SetupView: View {
                     detail: CapsStackText.resolve(.generateReturnBrief)
                 )
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
             .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(BrandPalette.BriefTheme.border))
         }
     }
 
@@ -419,7 +420,8 @@ struct SetupView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
     }
 

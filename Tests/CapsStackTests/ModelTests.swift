@@ -3,6 +3,41 @@ import XCTest
 @testable import CapsStack
 
 final class ModelTests: XCTestCase {
+    func testHistoryMonthRangeStopsAtFirstHistoryMonthAndCurrentMonth() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 9, day: 9)))
+        let firstHistoryDate = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 6, day: 12)))
+        let history = [
+            HistoryEntry(
+                interval: AwayInterval(
+                    start: firstHistoryDate,
+                    end: firstHistoryDate.addingTimeInterval(60)
+                ),
+                status: .empty,
+                sessionCount: 0,
+                sources: []
+            )
+        ]
+
+        let range = HistoryMonthRange(history: history, calendar: calendar, now: now)
+
+        XCTAssertTrue(range.contains(now, calendar: calendar))
+        XCTAssertTrue(range.contains(firstHistoryDate, calendar: calendar))
+        XCTAssertFalse(
+            range.contains(
+                try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 5, day: 1))),
+                calendar: calendar
+            )
+        )
+        XCTAssertFalse(
+            range.contains(
+                try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 1))),
+                calendar: calendar
+            )
+        )
+    }
+
     func testHistoryExportFilenameIsPortableAndDeterministic() throws {
         let utc = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
         let date = Date(timeIntervalSince1970: 1_700_000_000)

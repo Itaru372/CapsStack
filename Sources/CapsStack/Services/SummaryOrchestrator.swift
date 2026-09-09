@@ -14,35 +14,39 @@ struct SummaryOrchestrator {
         timeout: TimeInterval = 120,
         maxInputBytes: Int = 180 * 1024,
         maxChunkCount: Int = 8,
-        providers: [CLIKind: SummaryProvider]? = nil
+        providers: [CLIKind: SummaryProvider]? = nil,
+        locale: Locale = CapsStackText.systemLocale
     ) {
         self.maxInputBytes = max(16 * 1024, maxInputBytes)
         self.maxChunkCount = min(16, max(1, maxChunkCount))
         self.providers = providers ?? [
-            .codex: CodexSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
-            .claudeCode: ClaudeCodeSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
-            .opencode: OpenCodeSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
-            .pi: PiSummaryProvider(resolver: resolver, runner: runner, timeout: timeout),
+            .codex: CodexSummaryProvider(resolver: resolver, runner: runner, timeout: timeout, locale: locale),
+            .claudeCode: ClaudeCodeSummaryProvider(resolver: resolver, runner: runner, timeout: timeout, locale: locale),
+            .opencode: OpenCodeSummaryProvider(resolver: resolver, runner: runner, timeout: timeout, locale: locale),
+            .pi: PiSummaryProvider(resolver: resolver, runner: runner, timeout: timeout, locale: locale),
             .githubCopilot: SafeHeadlessSummaryProvider(
                 kind: .githubCopilot,
                 strategy: .githubCopilot,
                 resolver: resolver,
                 runner: runner,
-                timeout: timeout
+                timeout: timeout,
+                locale: locale
             ),
             .goose: SafeHeadlessSummaryProvider(
                 kind: .goose,
                 strategy: .goose,
                 resolver: resolver,
                 runner: runner,
-                timeout: timeout
+                timeout: timeout,
+                locale: locale
             ),
             .qwenCode: SafeHeadlessSummaryProvider(
                 kind: .qwenCode,
                 strategy: .qwenCode,
                 resolver: resolver,
                 runner: runner,
-                timeout: timeout
+                timeout: timeout,
+                locale: locale
             )
         ]
     }

@@ -28,7 +28,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 10)
                     .frame(height: 34)
                     .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(BrandPalette.BriefTheme.border))
                     .padding(.horizontal, 14)
                     .padding(.top, 18)
                     .padding(.bottom, 12)
@@ -375,7 +375,7 @@ private struct CollectorSettingsView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 11))
-            .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(BrandPalette.BriefTheme.border))
             .contentShape(Rectangle())
         }
     }
@@ -420,64 +420,63 @@ private struct SummarizerSettingsView: View {
     @State private var showsUnavailableSummarizers = false
 
     var body: some View {
-        Form {
-            Section(CapsStackText.resource(.returnBriefSection)) {
-                Picker(CapsStackText.resource(.summarizerCLI), selection: $primaryRaw) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(spacing: 8) {
                     ForEach(displayedSummarizerKinds) { kind in
-                        HStack {
-                            Label(kind.displayName, systemImage: kind.systemImage)
-                            if kind == .codex {
-                                Text(CapsStackText.resource(.recommended))
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(BrandPalette.BriefTheme.signal)
+                        Button { primaryRaw = kind.rawValue } label: {
+                            HStack(spacing: 12) {
+                                AgentArtwork(kind: kind, size: 30)
+                                Text(kind.displayName).font(.headline)
+                                Spacer()
+                                Image(systemName: primaryRaw == kind.rawValue ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(primaryRaw == kind.rawValue ? BrandPalette.BriefTheme.signal : .secondary)
                             }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .background(primaryRaw == kind.rawValue ? BrandPalette.BriefTheme.signal.opacity(0.08) : BrandPalette.BriefTheme.card,
+                                        in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(
+                                primaryRaw == kind.rawValue ? BrandPalette.BriefTheme.signal : BrandPalette.BriefTheme.border))
                         }
-                        .tag(kind.rawValue)
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(primaryRaw == kind.rawValue ? .isSelected : [])
                     }
                 }
-                .pickerStyle(.radioGroup)
-                .fixedSize(horizontal: false, vertical: true)
-
                 if !unavailableSummarizerKinds.isEmpty {
-                    Button(CapsStackText.resource(
-                        showsUnavailableSummarizers ? .hideUnavailableCLIs : .showUnavailableCLIs
-                    )) {
+                    Button(CapsStackText.resource(showsUnavailableSummarizers ? .hideUnavailableCLIs : .showUnavailableCLIs)) {
                         showsUnavailableSummarizers.toggle()
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.borderless)
                 }
-
                 if let selectedKind, controller.cliStatuses[selectedKind]?.isInstalled == false {
                     Label(CapsStackText.resource(.selectedCLINotDetected), systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                        .foregroundStyle(Color.orange)
+                        .font(.callout).foregroundStyle(.orange)
                 }
-
                 if displayedSummarizerKinds.isEmpty {
                     Label(CapsStackText.resource(.noSummarizerAvailable), systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                        .foregroundStyle(Color.orange)
+                        .font(.callout).foregroundStyle(.orange)
                 }
-
                 if let selectedKind {
-                    ModelSelectionControl(
-                        kind: selectedKind,
-                        model: modelBinding(for: selectedKind),
-                        controller: controller
-                    )
-                    if selectedKind.supportsReasoningOverride {
-                        ReasoningSelectionControl(
-                            kind: selectedKind,
-                            reasoning: reasoningBinding(for: selectedKind)
-                        )
+                    VStack(alignment: .leading, spacing: 16) {
+                        ModelSelectionControl(kind: selectedKind, model: modelBinding(for: selectedKind), controller: controller)
+                        if selectedKind.supportsReasoningOverride {
+                            Divider()
+                            ReasoningSelectionControl(kind: selectedKind, reasoning: reasoningBinding(for: selectedKind))
+                        }
                     }
+                    .padding(16)
+                    .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(BrandPalette.BriefTheme.border))
                 }
-
                 Toggle(CapsStackText.resource(.switchCLIOnFailure), isOn: $automaticFallback)
+                    .toggleStyle(.switch)
+                    .padding(16)
+                    .background(BrandPalette.BriefTheme.panel, in: RoundedRectangle(cornerRadius: 10))
             }
+            .padding(.bottom, 20)
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
         .onAppear {
             normalizePrimaryIfNeeded()
         }
@@ -831,7 +830,7 @@ private struct NotificationSettingsView: View {
             }
             .padding(16)
             .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 11))
-            .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(BrandPalette.BriefTheme.border))
         }
     }
 
@@ -876,7 +875,7 @@ private struct HotkeySettingsView: View {
                 }
             }
             .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 11))
-            .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(BrandPalette.BriefTheme.border))
         }
     }
 }
@@ -966,7 +965,7 @@ private struct DataManagementSettingsView: View {
         }
         .padding(16)
         .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 11))
-        .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(BrandPalette.BriefTheme.border))
     }
 }
 
@@ -1135,7 +1134,7 @@ private struct ExecutableRow: View {
         }
         .padding(16)
         .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 11))
-        .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(BrandPalette.BriefTheme.border))
         .onChange(of: path) { _, _ in
             Task {
                 await controller.refreshCLIStatuses()

@@ -91,13 +91,16 @@ struct HistoryView: View {
         .onAppear {
             if !buckets.contains(where: { Calendar.current.isDate($0, equalTo: displayedMonth, toGranularity: .month) }),
                let newest = buckets.last {
-                displayedMonth = Calendar.current.startOfMonth(for: newest)
+                displayedMonth = monthRange.clampedMonth(for: newest)
+            } else {
+                displayedMonth = monthRange.clampedMonth(for: displayedMonth)
             }
             if selection == nil || !entriesInDisplayedMonth.contains(where: { $0.id == selection }) {
                 selection = entriesInDisplayedMonth.first?.id
             }
         }
         .onChange(of: controller.history) { _, entries in
+            displayedMonth = monthRange.clampedMonth(for: displayedMonth)
             guard let selection else {
                 selectNewestEntry(in: entries)
                 return
@@ -159,9 +162,11 @@ struct HistoryView: View {
                 Button { shiftMonth(-1) } label: { Image(systemName: "chevron.left") }
                     .help(CapsStackText.resolve(.previousMonth))
                     .accessibilityLabel(CapsStackText.resolve(.previousMonth))
+                    .disabled(!canMoveToPreviousMonth)
                 Button { shiftMonth(1) } label: { Image(systemName: "chevron.right") }
                     .help(CapsStackText.resolve(.nextMonth))
                     .accessibilityLabel(CapsStackText.resolve(.nextMonth))
+                    .disabled(!canMoveToNextMonth)
             }
             .buttonStyle(.borderless)
 
@@ -259,7 +264,7 @@ struct HistoryView: View {
             byAdding: .month,
             value: direction,
             to: displayedMonth
-        ) else { return }
+        ), monthRange.contains(shifted) else { return }
 
         displayedMonth = Calendar.current.startOfMonth(for: shifted)
         selection = entriesInDisplayedMonth.first?.id
@@ -268,8 +273,26 @@ struct HistoryView: View {
     private func selectNewestEntry(in entries: [HistoryEntry]) {
         selection = entries.first?.id
         if let newest = entries.first {
-            displayedMonth = Calendar.current.startOfMonth(for: newest.interval.end)
+            displayedMonth = monthRange.clampedMonth(for: newest.interval.end)
         }
+    }
+
+    private var monthRange: HistoryMonthRange {
+        HistoryMonthRange(history: controller.history)
+    }
+
+    private var canMoveToPreviousMonth: Bool {
+        guard let shifted = Calendar.current.date(byAdding: .month, value: -1, to: displayedMonth) else {
+            return false
+        }
+        return monthRange.contains(shifted)
+    }
+
+    private var canMoveToNextMonth: Bool {
+        guard let shifted = Calendar.current.date(byAdding: .month, value: 1, to: displayedMonth) else {
+            return false
+        }
+        return monthRange.contains(shifted)
     }
 
     private var selectedEntry: HistoryEntry? {
@@ -295,11 +318,7 @@ struct HistoryView: View {
             .sorted()
     }
 
-    private func isSelected(_ bucket: DayBucket) -> Bool {
-        selectedEntry.map { entry in
-            Calendar.current.isDate(entry.interval.end, inSameDayAs: bucket.dayStart)
-        } ?? false
-    }
+
 }
 
 private struct DayBucket: Identifiable {
@@ -307,24 +326,6 @@ private struct DayBucket: Identifiable {
     let entries: [HistoryEntry]
 
     var id: Date { dayStart }
-    var sessionCount: Int { entries.reduce(0) { $0 + $1.sessionCount } }
-    var duration: TimeInterval { entries.reduce(0) { $0 + $1.interval.duration } }
-}
-
-private struct IconButton: View {
-    let systemName: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: 26, height: 26)
-        }
-        .buttonStyle(.plain)
-        .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 7))
-        .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 7))
-    }
 }
 
 private struct SessionHeaderCard: View {
@@ -337,59 +338,45 @@ private struct SessionHeaderCard: View {
     let delete: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text("\(entry.interval.start, format: .dateTime.month().day().hour().minute()) - \(entry.interval.end, format: .dateTime.hour().minute())")
-                .font(.body.monospacedDigit())
-
-            Text(DurationFormatter.string(from: entry.interval.duration))
-                .font(.callout.weight(.medium).monospacedDigit())
-
-            statusPill
-
-            Spacer(minLength: 8)
-
-            if let message {
-                Text(message)
-                    .font(.caption)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Text("\(entry.interval.start, format: .dateTime.month().day().hour().minute()) – \(entry.interval.end, format: .dateTime.hour().minute())")
+                    .font(.body.monospacedDigit())
+                Spacer(minLength: 8)
+                Text(DurationFormatter.string(from: entry.interval.duration))
+                    .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
-
-            Button {
-                copy()
-            } label: {
-                Label(
-                    CapsStackText.resource(entry.summary == nil ? .copyStatus : .copy),
-                    systemImage: "doc.on.doc"
-                )
-            }
-            .buttonStyle(.bordered)
-
-            if entry.status == .pending {
-                Button(CapsStackText.resource(.retrySummary), action: retry)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canRetry)
-            }
-
-            Menu {
-                Button(CapsStackText.resource(.exportMarkdown), action: export)
+            HStack(spacing: 12) {
+                statusPill
+                Spacer(minLength: 8)
+                if let message {
+                    Text(message).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Button(action: copy) {
+                    Label(CapsStackText.resource(entry.summary == nil ? .copyStatus : .copy), systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
                 if entry.status == .pending {
                     Button(CapsStackText.resource(.retrySummary), action: retry)
+                        .buttonStyle(.borderedProminent)
                         .disabled(!canRetry)
                 }
-                Divider()
-                Button(CapsStackText.resource(.delete), role: .destructive, action: delete)
-            } label: {
-                Image(systemName: "ellipsis.circle")
-                    .frame(width: 30, height: 30)
+                Menu {
+                    Button(CapsStackText.resource(.exportMarkdown), action: export)
+                    Divider()
+                    Button(CapsStackText.resource(.delete), role: .destructive, action: delete)
+                } label: {
+                    Image(systemName: "ellipsis.circle").frame(width: 24, height: 24)
+                }
+                .accessibilityLabel(CapsStackText.resolve(.briefActions))
+                .menuStyle(.borderlessButton)
+                .fixedSize()
             }
-            .accessibilityLabel(CapsStackText.resolve(.briefActions))
-            .menuStyle(.borderlessButton)
-            .fixedSize()
         }
         .padding(18)
         .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(BrandPalette.BriefTheme.border))
     }
 
     @ViewBuilder
@@ -484,7 +471,7 @@ private struct ReturnBriefView: View {
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(BrandPalette.BriefTheme.panel, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(BrandPalette.BriefTheme.border))
             }
 
             if let memo = entry.quickMemo, !memo.isEmpty {
@@ -520,7 +507,7 @@ private struct ReturnBriefView: View {
                 }
                 .padding(14)
                 .background(BrandPalette.BriefTheme.panel, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(BrandPalette.BriefTheme.border))
             }
 
             if entry.status == .completed, let submitFeedback {
@@ -556,7 +543,7 @@ private struct ReturnBriefView: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(BrandPalette.BriefTheme.border))
         }
     }
 
@@ -635,7 +622,7 @@ private struct BriefFeedbackView: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(BrandPalette.BriefTheme.panel, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(BrandPalette.BriefTheme.border, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(BrandPalette.BriefTheme.border))
         .accessibilityElement(children: .contain)
     }
 
@@ -785,5 +772,30 @@ extension Calendar {
     func startOfMonth(for date: Date) -> Date {
         let components = dateComponents([.year, .month], from: date)
         return self.date(from: components) ?? date
+    }
+}
+
+struct HistoryMonthRange {
+    let earliest: Date
+    let latest: Date
+
+    init(history: [HistoryEntry], calendar: Calendar = .current, now: Date = .now) {
+        let currentMonth = calendar.startOfMonth(for: now)
+        let historyStartMonth = history
+            .map { calendar.startOfMonth(for: $0.interval.end) }
+            .min()
+
+        earliest = min(historyStartMonth ?? currentMonth, currentMonth)
+        latest = currentMonth
+    }
+
+    func contains(_ date: Date, calendar: Calendar = .current) -> Bool {
+        let month = calendar.startOfMonth(for: date)
+        return earliest <= month && month <= latest
+    }
+
+    func clampedMonth(for date: Date, calendar: Calendar = .current) -> Date {
+        let month = calendar.startOfMonth(for: date)
+        return min(max(month, earliest), latest)
     }
 }

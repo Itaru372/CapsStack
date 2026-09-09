@@ -115,7 +115,7 @@ public enum CapsStackText {
         case setup = "Setup"
         case setupIntroduction = "Come back caught up.\nKnow your next move."
         case setupDescription = "Use Caps Lock as your away switch and build a return brief from local work history."
-        case localProcessing = "Session content and memos are processed only on this Mac."
+        case localProcessing = "History stays on this Mac. Your chosen summarizer may send session content to its provider."
         case workHistorySources = "Work history sources"
         case noReadableHistory = "No supported agents or readable history were found yet. You can still use an away memo."
         case returnBriefSummarizer = "Return brief summarizer"
@@ -366,7 +366,7 @@ public enum CapsStackText {
         LocalizedStringResource(
             String.LocalizationValue(key.rawValue),
             locale: locale,
-            bundle: .module
+            bundle: .atURL(resourceBundle.bundleURL)
         )
     }
 
@@ -388,8 +388,18 @@ public enum CapsStackText {
         return String(format: format, locale: locale, arguments: arguments)
     }
 
+    /// Packaged apps keep SwiftPM resources inside Contents/Resources. Resolve that
+    /// location first so launching an installed app never depends on the source checkout.
+    private static let resourceBundle: Bundle = {
+        if let url = Bundle.main.resourceURL?.appendingPathComponent("CapsStack_CapsStackLocalization.bundle"),
+           let bundle = Bundle(url: url) {
+            return bundle
+        }
+        return .module
+    }()
+
     private static func localizedBundle(for locale: Locale) -> Bundle {
-        let moduleBundle = Bundle.module
+        let moduleBundle = resourceBundle
         let identifiers: [String] = [
             locale.identifier,
             locale.identifier.replacingOccurrences(of: "_", with: "-"),

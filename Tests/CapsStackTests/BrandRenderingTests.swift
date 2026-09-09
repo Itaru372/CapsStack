@@ -103,6 +103,35 @@ final class BrandRenderingTests: XCTestCase {
         }
     }
 
+    func testCompactHistoryRecoveryStatesRender() throws {
+        let suite = "CapsStackRecoveryQA.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.set(false, forKey: PreferenceKeys.capsStackEnabled)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(suite)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = HistoryStore(directoryURL: directory)
+        let controller = AppController(defaults: defaults, resolver: VisualQAResolver(), historyStore: store,
+                                       notifications: SilentNotificationService())
+        let output = ProcessInfo.processInfo.environment["CAPSSTACK_QA_OUTPUT"].map { URL(fileURLWithPath: $0) }
+        for name in ["no-history", "empty", "pending"] {
+            if name != "no-history" {
+                let entry = HistoryEntry(interval: AwayInterval(start: .now.addingTimeInterval(-600), end: .now),
+                                         status: name == "empty" ? .empty : .pending,
+                                         sessionCount: name == "empty" ? 0 : 2, sources: [.codex],
+                                         errorMessage: name == "pending" ? String(repeating: "CLI diagnostic line\n", count: 100) : nil,
+                                         pendingArtifactID: name == "pending" ? UUID() : nil)
+                try store.save(entry)
+            }
+            controller.reloadHistory()
+            let size = CGSize(width: 940, height: 600)
+            let snapshot = try render(HistoryView(controller: controller).defaultAppStorage(defaults)
+                .environment(\.colorScheme, .light).frame(width: size.width, height: size.height), size: size)
+            XCTAssertEqual(snapshot.size, size)
+            if let output { try writePNG(snapshot, to: output.appendingPathComponent("history-\(name)-compact.png")) }
+        }
+    }
+
     private func render<Content: View>(
         _ content: Content,
         size: CGSize
@@ -135,7 +164,7 @@ final class BrandRenderingTests: XCTestCase {
         let start = Calendar.current.date(byAdding: .day, value: -1, to: .now) ?? .now
         let end = start.addingTimeInterval(8_322)
         let summary = SummaryDocument(
-            overview: "退席中の4セッションを整理しました。",
+            overview: "退席中のセッションを整理しました。",
             progress: ["ユーザー認証フローにパスキー認証を追加", "チーム招待APIの権限チェックを実装"],
             currentState: ["CIは安定しています"],
             decisions: ["招待リンクの有効期限は7日間とする"],

@@ -86,7 +86,7 @@ final class AppController: ObservableObject {
         self.runner = runner
         self.modelListing = modelListing ?? CLIModelCatalogService(resolver: resolver, runner: runner)
         self.collector = MultiSessionCollector(factory: SessionCollectorFactory(resolver: resolver))
-        self.summarizer = SummaryOrchestrator(resolver: resolver, runner: runner)
+        self.summarizer = SummaryOrchestrator(resolver: resolver, runner: runner, locale: locale)
         self.historyStore = historyStore
         self.notifications = notifications
         self.locale = locale

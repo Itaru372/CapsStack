@@ -90,7 +90,7 @@
 "Setup" = "セットアップ";
 "Come back caught up.\nKnow your next move." = "戻った瞬間、\n次の一手がわかる。";
 "Use Caps Lock as your away switch and build a return brief from local work history." = "Caps Lockを退席スイッチにして、ローカルの作業履歴から復帰ブリーフを作ります。";
-"Session content and memos are processed only on this Mac." = "セッション本文とメモは、このMac上の処理にだけ使われます。";
+"History stays on this Mac. Your chosen summarizer may send session content to its provider." = "履歴はこのMacに保存。選んだ要約CLIは、本文をサービス提供元へ送る場合があります。";
 "Work history sources" = "作業履歴の収集元";
 "No supported agents or readable history were found yet. You can still use an away memo." = "対応エージェントや読み取り可能な履歴はまだ見つかりません。退席前メモだけでも利用できます。";
 "Return brief summarizer" = "復帰ブリーフの要約担当";
