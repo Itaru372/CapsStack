@@ -83,10 +83,15 @@ enum BrandAssets {
     }
 
     static func nsImage(named name: String) -> NSImage? {
-        guard let url = resourceBundle.url(forResource: name, withExtension: "png") else {
-            return nil
+        for fileExtension in ["png", "svg"] {
+            guard let url = resourceBundle.url(forResource: name, withExtension: fileExtension),
+                  let image = NSImage(contentsOf: url),
+                  image.isValid else {
+                continue
+            }
+            return image
         }
-        return NSImage(contentsOf: url)
+        return nil
     }
 
     static func menuBarImage(

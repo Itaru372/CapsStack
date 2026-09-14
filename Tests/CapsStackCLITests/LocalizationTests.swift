@@ -23,6 +23,10 @@ final class LocalizationTests: XCTestCase {
     func testSharedTextUsesTheRequestedDisplayLanguage() {
         XCTAssertEqual(CapsStackText.resolve(.history, locale: english), "History")
         XCTAssertEqual(CapsStackText.resolve(.history, locale: japanese), "履歴")
+        XCTAssertEqual(CapsStackText.resolve(.highlights, locale: japanese), "いま把握すべきこと")
+        XCTAssertEqual(CapsStackText.resolve(.sessionDetails, locale: japanese), "セッションの詳細")
+        XCTAssertEqual(CapsStackText.resolve(.highlightWaiting, locale: japanese), "確認待ち")
+        XCTAssertEqual(CapsStackText.resolve(.highlightVerification, locale: japanese), "検証済み")
         XCTAssertEqual(
             CapsStackText.format(.notificationSubtitle, "進捗", 2, locale: japanese),
             "進捗 / セッション2件"

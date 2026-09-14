@@ -49,6 +49,46 @@ final class HistoryAndFormattingTests: XCTestCase {
         XCTAssertTrue(markdown.contains("Away memo"))
     }
 
+    func testMarkdownShowsHighlightKindAndSourceContext() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let entry = CLIHistoryEntry(
+            id: UUID(),
+            interval: CLIAwayInterval(start: start, end: start.addingTimeInterval(60)),
+            status: .completed,
+            summary: CLISummaryDocument(
+                overview: "要点",
+                progress: [],
+                currentState: [],
+                decisions: [],
+                blockers: [],
+                nextSteps: [],
+                highlights: [CLISummaryHighlight(
+                    kind: .waiting,
+                    text: "仕様の確認待ち",
+                    projectID: "project-1",
+                    projectName: "CapsStack",
+                    sessionID: "session-1",
+                    source: "Codex CLI"
+                )],
+                sessions: []
+            ),
+            provider: .codex,
+            fallbackUsed: false,
+            sessionCount: 1,
+            sources: [.codex],
+            collectionIssues: [],
+            errorMessage: nil,
+            pendingArtifactID: nil,
+            quickMemo: nil
+        )
+
+        let markdown = CLIFormatting.markdown(entry, locale: Locale(identifier: "ja"))
+
+        XCTAssertTrue(markdown.contains("## いま把握すべきこと"))
+        XCTAssertTrue(markdown.contains("**確認待ち**"))
+        XCTAssertTrue(markdown.contains("CapsStack / Codex CLI / session-1"))
+    }
+
     func testApplicationListLimitAndMissingEntryFailure() throws {
         let fixture = try Fixture(entries: [makeEntry(offset: 0), makeEntry(offset: 120)])
         defer { fixture.remove() }

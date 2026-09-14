@@ -44,11 +44,22 @@ enum CLIFormatting {
         }
         lines.append("")
         lines.append(summary.overview)
-        appendSection(CapsStackText.resolve(.progress, locale: locale), items: summary.progress, to: &lines)
-        appendSection(CapsStackText.resolve(.currentState, locale: locale), items: summary.currentState, to: &lines)
-        appendSection(CapsStackText.resolve(.decisions, locale: locale), items: summary.decisions, to: &lines)
-        appendSection(CapsStackText.resolve(.blockers, locale: locale), items: summary.blockers, to: &lines)
-        appendSection(CapsStackText.resolve(.nextSteps, locale: locale), items: summary.nextSteps, to: &lines)
+        if summary.highlights.isEmpty {
+            appendSection(CapsStackText.resolve(.progress, locale: locale), items: summary.progress, to: &lines)
+            appendSection(CapsStackText.resolve(.currentState, locale: locale), items: summary.currentState, to: &lines)
+            appendSection(CapsStackText.resolve(.decisions, locale: locale), items: summary.decisions, to: &lines)
+            appendSection(CapsStackText.resolve(.blockers, locale: locale), items: summary.blockers, to: &lines)
+            appendSection(CapsStackText.resolve(.nextSteps, locale: locale), items: summary.nextSteps, to: &lines)
+        } else {
+            lines.append("")
+            lines.append("## \(CapsStackText.resolve(.highlights, locale: locale))")
+            for highlight in summary.highlights.prefix(12) {
+                let source = [highlight.projectName, highlight.source, highlight.sessionID]
+                    .compactMap { $0 }
+                    .joined(separator: " / ")
+                lines.append("- **\(highlightTitle(highlight.kind, locale: locale))** · \(source): \(highlight.text)")
+            }
+        }
         if !summary.projects.isEmpty {
             lines.append("")
             lines.append("## \(CapsStackText.resolve(.byProjectMetadata, locale: locale))")
@@ -125,5 +136,20 @@ enum CLIFormatting {
         lines.append("")
         lines.append("## \(title)")
         lines.append(contentsOf: items.map { "- \($0)" })
+    }
+
+    private static func highlightTitle(_ kind: CLISummaryHighlightKind, locale: Locale) -> String {
+        switch kind {
+        case .nextAction: CapsStackText.resolve(.highlightNextAction, locale: locale)
+        case .waiting: CapsStackText.resolve(.highlightWaiting, locale: locale)
+        case .blocker: CapsStackText.resolve(.highlightBlocker, locale: locale)
+        case .progress: CapsStackText.resolve(.progress, locale: locale)
+        case .decision: CapsStackText.resolve(.highlightDecision, locale: locale)
+        case .currentState: CapsStackText.resolve(.currentState, locale: locale)
+        case .discovery: CapsStackText.resolve(.highlightDiscovery, locale: locale)
+        case .verification: CapsStackText.resolve(.highlightVerification, locale: locale)
+        case .risk: CapsStackText.resolve(.highlightRisk, locale: locale)
+        case .change: CapsStackText.resolve(.highlightChange, locale: locale)
+        }
     }
 }

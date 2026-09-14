@@ -298,6 +298,7 @@ struct SummaryOrchestrator {
             decisions: integrated.decisions,
             blockers: integrated.blockers + omissionNotices,
             nextSteps: integrated.nextSteps,
+            highlights: integrated.highlights,
             sessions: integrated.sessions,
             projects: integrated.projects
         )

@@ -98,11 +98,20 @@ final class AppController: ObservableObject {
         let feature = CapsStackFeaturePreferences(defaults: defaults)
         let telemetryPreferences = TelemetryPreferences(defaults: defaults)
         self.isCapsStackEnabled = feature.isEnabled
-        self.isSuppressingOriginalCapsLock = feature.suppressOriginalCapsLock
+        // The persisted value is the user's request. The monitor has not installed its event
+        // tap until start(), so expose the actual runtime state here rather than claiming that
+        // suppression is already active during controller initialization.
+        self.isSuppressingOriginalCapsLock = monitor.isSuppressingOriginal
         self.capsLockSuppressionError = nil
         self.isTelemetryConfigured = telemetry.isConfigured
-        self.isTelemetryEnabled = telemetry.isConfigured && telemetryPreferences.isEnabled
-        telemetry.setEnabled(self.isTelemetryEnabled)
+        // Keep the consent choice independent from whether this build has a telemetry
+        // destination. A local build without a PostHog token cannot send events, but the user
+        // must still be able to review and change the choice in setup.
+        self.isTelemetryEnabled = telemetryPreferences.isEnabled
+        telemetry.setEnabled(telemetryPreferences.isEnabled)
+        if telemetry.isConfigured {
+            self.isTelemetryEnabled = telemetry.isEnabled
+        }
     }
 
     var stateTitle: String {
@@ -198,13 +207,11 @@ final class AppController: ObservableObject {
 
     func setTelemetryEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: PreferenceKeys.telemetryEnabled)
-        guard isTelemetryConfigured else {
-            isTelemetryEnabled = false
-            return
-        }
-
         telemetry.setEnabled(enabled)
-        isTelemetryEnabled = telemetry.isEnabled
+        // With no configured destination, this remains a local consent preference and the
+        // telemetry client correctly stays inactive. Configured clients still report their
+        // actual activation state (for example, if SDK initialization fails).
+        isTelemetryEnabled = isTelemetryConfigured ? telemetry.isEnabled : enabled
         if isTelemetryEnabled {
             telemetry.capture(.telemetryEnabled)
         }
@@ -248,8 +255,20 @@ final class AppController: ObservableObject {
         applyCapsLockSuppression()
     }
 
-    func openAccessibilitySettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+    func retryCapsLockSuppression() {
+        guard CapsStackFeaturePreferences(defaults: defaults).suppressOriginalCapsLock else { return }
+        applyCapsLockSuppression()
+    }
+
+    func openCapsLockPermissionSettings() {
+        let pane: String
+        switch monitor.suppressionIssue {
+        case .accessibilityPermission:
+            pane = "Privacy_Accessibility"
+        case .inputMonitoringPermission, .eventTap, nil:
+            pane = "Privacy_ListenEvent"
+        }
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
         }
     }
@@ -262,15 +281,13 @@ final class AppController: ObservableObject {
 
     private func applyCapsLockSuppression() {
         let want = CapsStackFeaturePreferences(defaults: defaults).suppressOriginalCapsLock
-        let success = monitor.setSuppressionEnabled(want)
+        monitor.setSuppressionEnabled(want)
         // Publish state for UI
-        isSuppressingOriginalCapsLock = want && success
+        isSuppressingOriginalCapsLock = monitor.isSuppressingOriginal
         capsLockSuppressionError = monitor.suppressionError
-        // If activation failed, revert preference so toggle reflects reality
-        if want && !success {
-            defaults.set(false, forKey: PreferenceKeys.suppressOriginalCapsLock)
-            isSuppressingOriginalCapsLock = false
-        }
+        // Keep the preference as the user's request even when activation is waiting for a
+        // permission grant. The Settings view exposes a retry action and the next defaults
+        // change will also re-evaluate it.
     }
 
     func retry(_ entry: HistoryEntry) {
@@ -687,7 +704,7 @@ final class AppController: ObservableObject {
         let desired = TelemetryPreferences(defaults: defaults).isEnabled
         guard desired != isTelemetryEnabled else { return }
         telemetry.setEnabled(desired)
-        isTelemetryEnabled = telemetry.isEnabled
+        isTelemetryEnabled = isTelemetryConfigured ? telemetry.isEnabled : desired
     }
 
     private func refreshEnabledState() {
@@ -754,14 +771,7 @@ final class AppController: ObservableObject {
         awayStartedAt = nil
 
         let interval = AwayInterval(start: start, end: end)
-        let threshold = AwayThresholdPreferences(defaults: defaults)
-        guard interval.duration >= 1 else {
-            phase = .idle
-            activeSessionCount = 0
-            return
-        }
-
-        if interval.duration < TimeInterval(threshold.minimumAwaySeconds) {
+        if interval.duration < AwayInterval.minimumSummaryDuration {
             phase = .idle
             activeSessionCount = 0
             return
@@ -772,11 +782,6 @@ final class AppController: ObservableObject {
         let summarizerPreferences = SummarizerPreferences(defaults: defaults)
         let primary = summarizerPreferences.primary
         let sources = CollectorPreferences(defaults: defaults).enabledSources
-        telemetry.capture(.briefRequested(
-            awayDuration: interval.duration,
-            sourceCount: sources.count,
-            memoPresent: quickMemo != nil
-        ))
         let workflowID = beginWorkflow()
         let task = Task { [weak self] in
             guard let self else { return }
@@ -792,30 +797,18 @@ final class AppController: ObservableObject {
 
             if batch.sessions.isEmpty {
                 guard !Task.isCancelled, isCurrentWorkflow(workflowID) else { return }
-                telemetry.capture(.briefEmpty(
-                    awayDuration: interval.duration,
-                    sourceCount: sources.count,
-                    issueCount: batch.issues.count
-                ))
-                do {
-                    try saveEmptyHistory(batch: batch, requestedSources: sources)
-                    phase = .idle
-                } catch {
-                    telemetry.capture(.briefFailed(
-                        stage: .persistence,
-                        code: TelemetryFailureCode.from(error: error),
-                        provider: primary
-                    ))
-                    lastError = error.localizedDescription
-                    phase = .failed
-                    await notifications.notifyFailure(
-                        message: error.localizedDescription,
-                        interval: interval
-                    )
-                }
+                // Caps Lock can be toggled while no agent is doing work. Treat that interval as
+                // inactive: do not persist its duration, diagnostics, or an empty history row.
+                phase = .idle
                 activeSessionCount = 0
                 return
             }
+
+            telemetry.capture(.briefRequested(
+                awayDuration: interval.duration,
+                sourceCount: sources.count,
+                memoPresent: quickMemo != nil
+            ))
 
             do {
                 let pending = try historyStore.savePending(batch: batch)
@@ -940,19 +933,6 @@ final class AppController: ObservableObject {
             }
             return false
         }
-    }
-
-    private func saveEmptyHistory(batch: CollectionBatch, requestedSources: Set<CLIKind>) throws {
-        let entry = HistoryEntry(
-            interval: batch.interval,
-            status: .empty,
-            sessionCount: 0,
-            sources: requestedSources.sorted { $0.rawValue < $1.rawValue },
-            collectionIssues: batch.issues,
-            errorMessage: requestedSources.isEmpty ? CapsStackText.resolve(.noCollectionSources, locale: locale) : nil
-        )
-        _ = try historyStore.save(entry)
-        reloadHistory()
     }
 
     /// Called only after `HistoryStore.saveCompleted` succeeds, so activation never counts an

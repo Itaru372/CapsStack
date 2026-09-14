@@ -106,8 +106,26 @@ final class ModelTests: XCTestCase {
     func testBrandAssetsArePackaged() {
         XCTAssertNotNil(BrandAssets.nsImage(named: "CapsStackAppIcon"))
         XCTAssertNotNil(BrandAssets.nsImage(named: "CapsStackMenuBar"))
-        for name in ["AgentKilo", "AgentGoose", "AgentQwen", "AgentContinue", "AgentGemini"] {
-            XCTAssertNotNil(Bundle.module.url(forResource: name, withExtension: "png"))
+        let artwork: [(CLIKind, String)] = [
+            (.codex, "AgentCodex"),
+            (.claudeCode, "AgentClaudeCode"),
+            (.opencode, "AgentOpenCode"),
+            (.pi, "AgentPi"),
+            (.githubCopilot, "AgentGitHubCopilot"),
+            (.kiloCode, "AgentKilo"),
+            (.goose, "AgentGoose"),
+            (.qwenCode, "AgentQwen"),
+            (.continueCLI, "AgentContinue"),
+            (.geminiCLI, "AgentGemini")
+        ]
+        for (kind, name) in artwork {
+            XCTAssertEqual(kind.artworkResourceName, name)
+            XCTAssertTrue(
+                Bundle.module.url(forResource: name, withExtension: "svg") != nil
+                    || Bundle.module.url(forResource: name, withExtension: "png") != nil,
+                "Missing packaged artwork for \(name)"
+            )
+            XCTAssertNotNil(BrandAssets.nsImage(named: name))
         }
     }
 
@@ -239,7 +257,6 @@ final class ModelTests: XCTestCase {
 
         // Prime registration before observing. Reads that follow must not call
         // register(defaults:) again and must therefore not feed AppController's observer loop.
-        _ = AwayThresholdPreferences(defaults: defaults)
         _ = CapsStackFeaturePreferences(defaults: defaults)
         _ = CollectorPreferences(defaults: defaults)
         _ = SummarizerPreferences(defaults: defaults)
@@ -255,7 +272,6 @@ final class ModelTests: XCTestCase {
         defer { NotificationCenter.default.removeObserver(token) }
 
         for _ in 0..<100 {
-            _ = AwayThresholdPreferences(defaults: defaults)
             _ = CapsStackFeaturePreferences(defaults: defaults)
             _ = CollectorPreferences(defaults: defaults)
             _ = SummarizerPreferences(defaults: defaults)
@@ -299,10 +315,35 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(DurationFormatter.string(from: -4), "00:00")
     }
 
-    func testAwayThresholdPreferencesClampValues() {
-        XCTAssertEqual(AwayThresholdPreferences(minimumAwaySeconds: -10).minimumAwaySeconds, 0)
-        XCTAssertEqual(AwayThresholdPreferences(minimumAwaySeconds: 30).minimumAwaySeconds, 30)
-        XCTAssertEqual(AwayThresholdPreferences(minimumAwaySeconds: 7200).minimumAwaySeconds, 3600)
+    func testAwayIntervalUsesFixedMinimumSummaryDuration() {
+        XCTAssertEqual(AwayInterval.minimumSummaryDuration, 5)
+    }
+
+    func testSummaryHighlightLimitsTotalAndPerKind() {
+        let highlights = (0..<20).map { index in
+            SummaryHighlight(
+                kind: index < 8 ? .progress : .decision,
+                text: "item \(index)",
+                projectID: "project",
+                projectName: "CapsStack"
+            )
+        }
+
+        let bounded = SummaryHighlightLimits.bounded(highlights)
+
+        XCTAssertEqual(bounded.count, 6)
+        XCTAssertEqual(bounded.filter { $0.kind == .progress }.count, 3)
+        XCTAssertEqual(bounded.filter { $0.kind == .decision }.count, 3)
+    }
+
+    func testSummarySchemaIncludesBoundedHighlights() throws {
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(SummarySchema.json.utf8)) as? [String: Any]
+        )
+        let properties = try XCTUnwrap(object["properties"] as? [String: Any])
+        let highlights = try XCTUnwrap(properties["highlights"] as? [String: Any])
+
+        XCTAssertEqual(highlights["maxItems"] as? Int, SummaryHighlightLimits.total)
     }
 
     func testQuickMemoPreferencesTrimsAndSaves() throws {

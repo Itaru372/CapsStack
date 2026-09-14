@@ -62,8 +62,14 @@ struct MenuBarView: View {
                 || controller.phase == .disabled
         )
 
-        Button(quickMemoTitle) {
+        Button {
             activateAndOpenWindow(id: "quick-memo")
+        } label: {
+            Label {
+                Text(quickMemoTitle)
+            } icon: {
+                ProductSymbolImage(symbol: .awayMemo)
+            }
         }
         .disabled(!controller.isCapsStackEnabled || controller.phase == .summarizing)
 
@@ -72,7 +78,11 @@ struct MenuBarView: View {
         Button {
             activateAndOpenWindow(id: "history")
         } label: {
-            Label(CapsStackText.resource(.openHistory), systemImage: "text.page")
+            Label {
+                Text(CapsStackText.resource(.openHistory))
+            } icon: {
+                ProductSymbolImage(symbol: .returnBrief)
+            }
         }
         .keyboardShortcut("o", modifiers: [.command])
 

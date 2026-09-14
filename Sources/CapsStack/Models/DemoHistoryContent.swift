@@ -38,6 +38,48 @@ enum DemoHistoryContent {
                         copy("Add dashboard export", "ダッシュボードのエクスポート機能を追加"),
                         copy("Review E2E coverage and add missing cases", "E2Eテストのカバレッジを確認し、不足ケースを追加")
                     ],
+                    highlights: [
+                        SummaryHighlight(
+                            kind: .nextAction,
+                            text: copy("Review the invitation email template before release.", "リリース前に招待メールのテンプレート文面をレビューする。"),
+                            projectID: "project-1",
+                            projectName: "Accounts",
+                            sessionID: "codex-passkeys",
+                            source: "Codex Desktop"
+                        ),
+                        SummaryHighlight(
+                            kind: .waiting,
+                            text: copy("Passkey recovery behavior needs product confirmation.", "パスキー紛失時のリカバリー方針はプロダクト確認待ち。"),
+                            projectID: "project-1",
+                            projectName: "Accounts",
+                            sessionID: "claude-auth-review",
+                            source: "Claude Code CLI"
+                        ),
+                        SummaryHighlight(
+                            kind: .decision,
+                            text: copy("Invitation links expire after seven days.", "招待リンクの有効期限を7日間に決定。"),
+                            projectID: "project-1",
+                            projectName: "Accounts",
+                            sessionID: "opencode-invitations",
+                            source: "OpenCode CLI"
+                        ),
+                        SummaryHighlight(
+                            kind: .progress,
+                            text: copy("Dashboard filters now persist locally.", "ダッシュボードのフィルタをローカル保存できるようになった。"),
+                            projectID: "project-2",
+                            projectName: "Dashboard",
+                            sessionID: "pi-dashboard",
+                            source: "Pi coding agent"
+                        ),
+                        SummaryHighlight(
+                            kind: .verification,
+                            text: copy("Three E2E scenarios are stable in CI.", "E2Eテスト3件がCIで安定して通ることを確認。"),
+                            projectID: "project-2",
+                            projectName: "Dashboard",
+                            sessionID: "codex-e2e",
+                            source: "Codex CLI"
+                        )
+                    ],
                     sessions: []
                 ),
                 sources: [.codex, .claudeCode, .opencode, .pi]

@@ -35,11 +35,15 @@ enum SummaryMarkdown {
         }
         lines.append("")
         lines.append(summary.overview)
-        appendSection(CapsStackText.resolve(.progress, locale: locale), items: summary.progress, to: &lines)
-        appendSection(CapsStackText.resolve(.currentState, locale: locale), items: summary.currentState, to: &lines)
-        appendSection(CapsStackText.resolve(.decisions, locale: locale), items: summary.decisions, to: &lines)
-        appendSection(CapsStackText.resolve(.blockers, locale: locale), items: summary.blockers, to: &lines)
-        appendSection(CapsStackText.resolve(.nextSteps, locale: locale), items: summary.nextSteps, to: &lines)
+        if summary.highlights.isEmpty {
+            appendSection(CapsStackText.resolve(.progress, locale: locale), items: summary.progress, to: &lines)
+            appendSection(CapsStackText.resolve(.currentState, locale: locale), items: summary.currentState, to: &lines)
+            appendSection(CapsStackText.resolve(.decisions, locale: locale), items: summary.decisions, to: &lines)
+            appendSection(CapsStackText.resolve(.blockers, locale: locale), items: summary.blockers, to: &lines)
+            appendSection(CapsStackText.resolve(.nextSteps, locale: locale), items: summary.nextSteps, to: &lines)
+        } else {
+            appendHighlights(summary.highlights, locale: locale, to: &lines)
+        }
 
         if !summary.projects.isEmpty {
             lines.append("")
@@ -117,6 +121,41 @@ enum SummaryMarkdown {
         lines.append("## \(title)")
         for item in items {
             lines.append("- \(item)")
+        }
+    }
+
+    private static func appendHighlights(
+        _ highlights: [SummaryHighlight],
+        locale: Locale,
+        to lines: inout [String]
+    ) {
+        lines.append("")
+        lines.append("## \(CapsStackText.resolve(.highlights, locale: locale))")
+        for highlight in SummaryHighlightLimits.bounded(highlights) {
+            let scope: String
+            if let source = highlight.source, let sessionID = highlight.sessionID {
+                scope = "\(highlight.projectName) / \(source) — \(sessionID)"
+            } else if let source = highlight.source {
+                scope = "\(highlight.projectName) / \(source)"
+            } else {
+                scope = highlight.projectName
+            }
+            lines.append("- **\(highlightTitle(highlight.kind, locale: locale))** · \(scope): \(highlight.text)")
+        }
+    }
+
+    private static func highlightTitle(_ kind: SummaryHighlightKind, locale: Locale) -> String {
+        switch kind {
+        case .nextAction: CapsStackText.resolve(.highlightNextAction, locale: locale)
+        case .waiting: CapsStackText.resolve(.highlightWaiting, locale: locale)
+        case .blocker: CapsStackText.resolve(.highlightBlocker, locale: locale)
+        case .progress: CapsStackText.resolve(.progress, locale: locale)
+        case .decision: CapsStackText.resolve(.highlightDecision, locale: locale)
+        case .currentState: CapsStackText.resolve(.currentState, locale: locale)
+        case .discovery: CapsStackText.resolve(.highlightDiscovery, locale: locale)
+        case .verification: CapsStackText.resolve(.highlightVerification, locale: locale)
+        case .risk: CapsStackText.resolve(.highlightRisk, locale: locale)
+        case .change: CapsStackText.resolve(.highlightChange, locale: locale)
         }
     }
 }

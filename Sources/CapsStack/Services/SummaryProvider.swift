@@ -45,16 +45,18 @@ enum SummaryPromptFactory {
             throw SummaryProviderError.invalidOutput(provider)
         }
         let languageInstruction = locale.language.languageCode?.identifier == "ja"
-            ? "Write every natural-language summary value in Japanese, including overview, progress, currentState, decisions, blockers, nextSteps, project summaries, and session summaries."
+            ? "Write every natural-language summary value in Japanese, including overview, highlight text and projectName, project summaries, and session summaries."
             : "Write every summary field in English."
         let text = """
         You are CapsStack's dedicated summarization process. Read only the JSON between BEGIN_CAPSSTACK_ARTIFACT and END_CAPSSTACK_ARTIFACT, then summarize the progress made while the user was away.
         \(languageInstruction) Keep the JSON keys and required structure exactly as specified. Preserve proper names, code, commands, and quoted user text as written when needed for accuracy.
         Do not change code, run commands, inspect files, access the network, or resume or continue a source session.
         Do not infer facts that are not present in the logs. Use empty arrays for unknown sections.
-        If the JSON contains quickMemo, it is context the user wrote before stepping away. Consider it alongside the session logs and reflect it in overview or nextSteps when relevant.
+        If the JSON contains quickMemo, it is context the user wrote before stepping away. Consider it alongside the session logs and reflect it in overview or a relevant highlight when useful.
         The events are limited to the interval when Caps Lock was on. Preserve the project and session hierarchy: summarize sessions within their project and never mix sessions across projects.
-        Return only a JSON object containing all of these keys: overview, progress, currentState, decisions, blockers, nextSteps, projects.
+        Return only a JSON object containing all of these keys: overview, progress, currentState, decisions, blockers, nextSteps, highlights, projects.
+        Select only the most useful highlights supported by the artifact. Allowed highlight kinds are nextAction, waiting, blocker, progress, decision, currentState, discovery, verification, risk, and change. Do not force every kind to appear. Return at most 12 highlights total and at most 3 of any one kind, ordered by what the returning user should notice first. Keep progress, currentState, decisions, blockers, and nextSteps as empty arrays; highlights replaces those legacy fields for new summaries.
+        Every highlight must contain kind, text, projectID, projectName, sessionID, and source. Copy the input project's projectID and name into projectID and projectName. When one session supports the item, preserve that session's id as sessionID and its source as source. When an item combines multiple sessions from the same project, use null for sessionID and source. Never combine different projects in one highlight.
         Each project in projects must contain projectID, name, summary, and sessions. Preserve projectID and name from the input, and summarize that project's sessions and events in summary. Each output session must contain sessionID, source, and summary; preserve the input session id and source, and summarize its events. Do not include Markdown fences or explanatory text.
 
         BEGIN_CAPSSTACK_ARTIFACT
@@ -947,6 +949,7 @@ enum SummaryOutputParser {
         let hasNextSteps = normalized["nextsteps"] != nil || normalized["next_steps"] != nil
         let hasProjects = normalized["projects"] != nil
         let hasLegacySessions = normalized["sessions"] != nil
+        let hasHighlights = normalized["highlights"] != nil
         guard normalized["overview"] != nil,
               normalized["progress"] != nil,
               hasCurrentState,
@@ -971,6 +974,14 @@ enum SummaryOutputParser {
               let blockers = stringArray(normalized["blockers"]),
               let nextSteps = stringArray(normalized["nextsteps"] ?? normalized["next_steps"]) else {
             return nil
+        }
+
+        let highlights: [SummaryHighlight]
+        if hasHighlights {
+            guard let parsedHighlights = highlightArray(normalized["highlights"]) else { return nil }
+            highlights = SummaryHighlightLimits.bounded(parsedHighlights)
+        } else {
+            highlights = []
         }
 
         let projects: [ProjectSummary]
@@ -1004,6 +1015,7 @@ enum SummaryOutputParser {
             decisions: decisions,
             blockers: blockers,
             nextSteps: nextSteps,
+            highlights: highlights,
             sessions: sessions,
             projects: projects
         )
@@ -1044,6 +1056,43 @@ enum SummaryOutputParser {
             ))
         }
         return result
+    }
+
+    private static func highlightArray(_ value: Any?) -> [SummaryHighlight]? {
+        guard let array = value as? [Any] else { return nil }
+        var result: [SummaryHighlight] = []
+        result.reserveCapacity(min(array.count, SummaryHighlightLimits.total))
+        for item in array {
+            guard let dictionary = item as? [String: Any],
+                  let normalized = normalizedDictionary(dictionary),
+                  let kindValue = stringValue(normalized["kind"]),
+                  let kind = SummaryHighlightKind(rawValue: kindValue),
+                  let text = normalizedString(normalized["text"]),
+                  let projectID = normalizedString(normalized["projectid"] ?? normalized["project_id"]),
+                  let projectName = normalizedString(normalized["projectname"] ?? normalized["project_name"])
+            else { return nil }
+
+            result.append(SummaryHighlight(
+                kind: kind,
+                text: text,
+                projectID: projectID,
+                projectName: projectName,
+                sessionID: normalizedOptionalString(normalized["sessionid"] ?? normalized["session_id"]),
+                source: normalizedOptionalString(normalized["source"])
+            ))
+        }
+        return result
+    }
+
+    private static func normalizedString(_ value: Any?) -> String? {
+        guard let string = stringValue(value)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !string.isEmpty else { return nil }
+        return string
+    }
+
+    private static func normalizedOptionalString(_ value: Any?) -> String? {
+        guard !(value is NSNull) else { return nil }
+        return normalizedString(value)
     }
 
     private static func projectArray(_ value: Any?, provider: CLIKind) -> [ProjectSummary]? {

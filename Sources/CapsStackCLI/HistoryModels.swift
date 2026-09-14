@@ -77,6 +77,62 @@ struct CLIProjectSummary: Codable, Equatable, Identifiable, Sendable {
     let sessions: [CLISessionSummary]
 }
 
+enum CLISummaryHighlightKind: String, Codable, Sendable {
+    case nextAction
+    case waiting
+    case blocker
+    case progress
+    case decision
+    case currentState
+    case discovery
+    case verification
+    case risk
+    case change
+}
+
+struct CLISummaryHighlight: Codable, Equatable, Identifiable, Sendable {
+    let id: UUID
+    let kind: CLISummaryHighlightKind
+    let text: String
+    let projectID: String
+    let projectName: String
+    let sessionID: String?
+    let source: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, text, projectID, projectName, sessionID, source
+    }
+
+    init(
+        id: UUID = UUID(),
+        kind: CLISummaryHighlightKind,
+        text: String,
+        projectID: String,
+        projectName: String,
+        sessionID: String? = nil,
+        source: String? = nil
+    ) {
+        self.id = id
+        self.kind = kind
+        self.text = text
+        self.projectID = projectID
+        self.projectName = projectName
+        self.sessionID = sessionID
+        self.source = source
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try container.decode(CLISummaryHighlightKind.self, forKey: .kind)
+        text = try container.decode(String.self, forKey: .text)
+        projectID = try container.decode(String.self, forKey: .projectID)
+        projectName = try container.decode(String.self, forKey: .projectName)
+        sessionID = try container.decodeIfPresent(String.self, forKey: .sessionID)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+    }
+}
+
 struct CLISummaryDocument: Codable, Equatable, Sendable {
     let overview: String
     let progress: [String]
@@ -84,6 +140,7 @@ struct CLISummaryDocument: Codable, Equatable, Sendable {
     let decisions: [String]
     let blockers: [String]
     let nextSteps: [String]
+    let highlights: [CLISummaryHighlight]
     let sessions: [CLISessionSummary]
     let projects: [CLIProjectSummary]
 
@@ -94,6 +151,7 @@ struct CLISummaryDocument: Codable, Equatable, Sendable {
         decisions: [String],
         blockers: [String],
         nextSteps: [String],
+        highlights: [CLISummaryHighlight] = [],
         sessions: [CLISessionSummary],
         projects: [CLIProjectSummary] = []
     ) {
@@ -103,12 +161,13 @@ struct CLISummaryDocument: Codable, Equatable, Sendable {
         self.decisions = decisions
         self.blockers = blockers
         self.nextSteps = nextSteps
+        self.highlights = highlights
         self.sessions = sessions
         self.projects = projects
     }
 
     private enum CodingKeys: String, CodingKey {
-        case overview, progress, currentState, decisions, blockers, nextSteps, sessions, projects
+        case overview, progress, currentState, decisions, blockers, nextSteps, highlights, sessions, projects
     }
 
     init(from decoder: Decoder) throws {
@@ -119,6 +178,9 @@ struct CLISummaryDocument: Codable, Equatable, Sendable {
         decisions = try container.decode([String].self, forKey: .decisions)
         blockers = try container.decode([String].self, forKey: .blockers)
         nextSteps = try container.decode([String].self, forKey: .nextSteps)
+        highlights = Array(
+            (try container.decodeIfPresent([CLISummaryHighlight].self, forKey: .highlights) ?? []).prefix(12)
+        )
         projects = try container.decodeIfPresent([CLIProjectSummary].self, forKey: .projects) ?? []
         sessions = try container.decodeIfPresent([CLISessionSummary].self, forKey: .sessions)
             ?? projects.flatMap(\.sessions)

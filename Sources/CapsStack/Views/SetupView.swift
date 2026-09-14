@@ -215,7 +215,6 @@ struct SetupView: View {
                     )
                 )
                 .toggleStyle(.switch)
-                .disabled(!controller.isTelemetryConfigured)
 
                 Text(telemetryDetail)
                     .font(.footnote)
@@ -238,12 +237,12 @@ struct SetupView: View {
                     detail: CapsStackText.resolve(.startAwayInterval)
                 )
                 usageStep(
-                    symbol: "cup.and.saucer.fill",
+                    productSymbol: .stepAway,
                     title: CapsStackText.resolve(.stepAway),
                     detail: CapsStackText.resolve(.collectCLIHistoryLocally)
                 )
                 usageStep(
-                    symbol: "text.page.fill",
+                    productSymbol: .returnBrief,
                     title: CapsStackText.resolve(.turnCapsLockOff),
                     detail: CapsStackText.resolve(.generateReturnBrief)
                 )
@@ -410,6 +409,24 @@ struct SetupView: View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
                 .font(.system(size: 15))
+                .foregroundStyle(BrandPalette.BriefTheme.signal)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func usageStep(productSymbol: ProductSymbol, title: String, detail: String) -> some View {
+        HStack(spacing: 10) {
+            ProductSymbolImage(symbol: productSymbol, size: 15)
                 .foregroundStyle(BrandPalette.BriefTheme.signal)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 2) {

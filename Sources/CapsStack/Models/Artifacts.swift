@@ -6,6 +6,9 @@ struct AwayInterval: Codable, Equatable, Sendable {
     let end: Date
 
     var duration: TimeInterval { max(0, end.timeIntervalSince(start)) }
+
+    /// Ignore accidental Caps Lock taps shorter than this fixed safety threshold.
+    static let minimumSummaryDuration: TimeInterval = 5
 }
 
 struct CollectedEvent: Codable, Equatable, Sendable {

@@ -38,8 +38,12 @@ struct SettingsView: View {
                         selectedSection = section
                     } label: {
                         HStack(spacing: 10) {
-                            Image(systemName: section.systemImage)
-                                .font(.system(size: 13))
+                            if let productSymbol = section.productSymbol {
+                                ProductSymbolImage(symbol: productSymbol, size: 13)
+                            } else {
+                                Image(systemName: section.systemImage)
+                                    .font(.system(size: 13))
+                            }
                             Text(section.title)
                                 .font(.callout.weight(selectedSection == section ? .semibold : .regular))
                             Spacer(minLength: 0)
@@ -208,6 +212,14 @@ enum SettingsSection: String, CaseIterable, Identifiable, Hashable {
         case .hotkeys: "command.square"
         case .data: "externaldrive"
         case .advanced: "slider.horizontal.3"
+        }
+    }
+
+    var productSymbol: ProductSymbol? {
+        switch self {
+        case .collectors: .collectionSources
+        case .summarizers: .summarizer
+        case .general, .notifications, .hotkeys, .data, .advanced: nil
         }
     }
 
@@ -724,7 +736,6 @@ private struct GeneralSettingsView: View {
     @AppStorage(PreferenceKeys.capsStackEnabled) private var capsStackEnabled = true
     @AppStorage(PreferenceKeys.keepRunningInBackground) private var keepRunningInBackground = true
     @AppStorage(PreferenceKeys.suppressOriginalCapsLock) private var suppressOriginalCapsLock = false
-    @AppStorage(PreferenceKeys.minimumAwayDuration) private var minimumAwaySeconds = 0
     @AppStorage(PreferenceKeys.setupCompleted) private var setupCompleted = false
 
     var body: some View {
@@ -737,7 +748,6 @@ private struct GeneralSettingsView: View {
                         controller.setCapsStackEnabled(newValue)
                     }
                 ))
-                Stepper(CapsStackText.format(.minimumAwayTime, minimumAwaySeconds), value: $minimumAwaySeconds, in: 0...3600, step: 5)
             }
 
             Section(CapsStackText.resource(.capsLock)) {
@@ -748,10 +758,22 @@ private struct GeneralSettingsView: View {
                         Label(CapsStackText.resource(.enabled), systemImage: "checkmark.circle.fill")
                             .foregroundStyle(BrandPalette.BriefTheme.signal)
                     } else {
-                        Label(CapsStackText.resource(.accessibilityPermissionRequired), systemImage: "lock.shield")
+                        Label {
+                            Text(
+                                controller.capsLockSuppressionError
+                                    ?? CapsStackText.resolve(.accessibilityPermissionRequired)
+                            )
+                        } icon: {
+                            Image(systemName: "lock.shield")
+                        }
                             .foregroundStyle(Color.orange)
-                        Button(CapsStackText.resource(.openSystemSettings)) {
-                            controller.openAccessibilitySettings()
+                        HStack {
+                            Button(CapsStackText.resource(.checkAgain)) {
+                                controller.retryCapsLockSuppression()
+                            }
+                            Button(CapsStackText.resource(.openSystemSettings)) {
+                                controller.openCapsLockPermissionSettings()
+                            }
                         }
                     }
                 }

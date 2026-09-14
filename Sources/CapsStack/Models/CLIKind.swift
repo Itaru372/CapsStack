@@ -144,12 +144,16 @@ enum CLIKind: String, Codable, CaseIterable, Identifiable, Sendable {
     /// settings remain useful offline and do not leak launches to third-party image hosts.
     var artworkResourceName: String? {
         switch self {
+        case .codex: "AgentCodex"
+        case .claudeCode: "AgentClaudeCode"
+        case .opencode: "AgentOpenCode"
+        case .pi: "AgentPi"
+        case .githubCopilot: "AgentGitHubCopilot"
         case .kiloCode: "AgentKilo"
         case .goose: "AgentGoose"
         case .qwenCode: "AgentQwen"
         case .continueCLI: "AgentContinue"
         case .geminiCLI: "AgentGemini"
-        default: nil
         }
     }
 

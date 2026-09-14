@@ -285,6 +285,9 @@ final class BackendTests: XCTestCase {
         XCTAssertFalse(prompt.contains("\"id\": \"project-1\""))
         XCTAssertTrue(prompt.contains("\"client\" : \"desktop\""))
         XCTAssertTrue(prompt.contains("\"source\" : \"Codex Desktop\""))
+        XCTAssertTrue(prompt.contains("Do not force every kind to appear"))
+        XCTAssertTrue(prompt.contains("at most 12 highlights total"))
+        XCTAssertTrue(prompt.contains("Every highlight must contain kind, text, projectID, projectName, sessionID, and source"))
     }
 
     func testLegacyCollectedSessionWithoutClientDecodesAsUnknown() throws {
@@ -775,6 +778,43 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(document.sessions.count, 1)
         XCTAssertEqual(document.sessions.first?.sessionID, "legacy-session")
         XCTAssertEqual(document.sessions.first?.summary, "旧形式の進捗")
+    }
+
+    func testSummaryOutputParserReadsAttributedHighlightsAndAppliesLimits() throws {
+        let highlightObjects: [[String: Any?]] = (0..<15).map { index in
+            [
+                "kind": index < 6 ? "progress" : "decision",
+                "text": "item \(index)",
+                "projectID": "project-a",
+                "projectName": "CapsStack",
+                "sessionID": index == 0 ? "session-1" : nil,
+                "source": index == 0 ? "Codex CLI" : nil
+            ]
+        }
+        let output: [String: Any] = [
+            "overview": "要点",
+            "progress": [],
+            "currentState": [],
+            "decisions": [],
+            "blockers": [],
+            "nextSteps": [],
+            "highlights": highlightObjects.map { dictionary in
+                dictionary.mapValues { $0 ?? NSNull() }
+            },
+            "projects": []
+        ]
+
+        let document = try XCTUnwrap(SummaryOutputParser.parse(
+            stdout: try JSONSerialization.data(withJSONObject: output),
+            provider: .codex
+        ))
+
+        XCTAssertEqual(document.highlights.count, 6)
+        XCTAssertEqual(document.highlights.first?.projectName, "CapsStack")
+        XCTAssertEqual(document.highlights.first?.sessionID, "session-1")
+        XCTAssertEqual(document.highlights.first?.source, "Codex CLI")
+        XCTAssertEqual(document.highlights.filter { $0.kind == .progress }.count, 3)
+        XCTAssertEqual(document.highlights.filter { $0.kind == .decision }.count, 3)
     }
 
     func testGitHubCopilotCollectorReadsSessionStateEventsAndWorkspaceDirectory() throws {
@@ -1497,7 +1537,7 @@ final class BackendTests: XCTestCase {
     }
 
     @MainActor
-    func testAppControllerSavesEmptyHistoryWhenNoSourceIsSelected() async throws {
+    func testAppControllerDoesNotSaveInactiveIntervalWhenNoSourceIsSelected() async throws {
         let suiteName = "CapsStackEmptyWorkflowTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -1534,10 +1574,7 @@ final class BackendTests: XCTestCase {
         }
 
         XCTAssertEqual(controller.phase, .idle)
-        let entry = try XCTUnwrap(controller.history.first)
-        XCTAssertEqual(entry.status, .empty)
-        XCTAssertEqual(entry.sessionCount, 0)
-        XCTAssertEqual(entry.errorMessage, "No collection sources are selected.")
+        XCTAssertTrue(controller.history.isEmpty)
 
         controller.setCapsStackEnabled(false)
         await Task.yield()
@@ -1579,8 +1616,8 @@ final class BackendTests: XCTestCase {
         XCTAssertEqual(controller.phase, .away)
         XCTAssertNotNil(defaults.object(forKey: PreferenceKeys.awayStart) as? Date)
 
-        // Sub-second toggles are intentionally ignored as accidental input.
-        try await Task.sleep(nanoseconds: 1_050_000_000)
+        // A quick toggle is intentionally ignored as accidental input.
+        try await Task.sleep(nanoseconds: 50_000_000)
         controller.endAwayManually()
         for _ in 0..<200 where controller.phase == .summarizing || controller.phase == .away {
             try await Task.sleep(nanoseconds: 10_000_000)
@@ -1588,8 +1625,7 @@ final class BackendTests: XCTestCase {
 
         XCTAssertEqual(controller.phase, .idle)
         XCTAssertNil(defaults.object(forKey: PreferenceKeys.awayStart))
-        XCTAssertEqual(controller.history.first?.status, .empty)
-        XCTAssertEqual(controller.history.first?.errorMessage, "No collection sources are selected.")
+        XCTAssertTrue(controller.history.isEmpty)
 
         controller.setCapsStackEnabled(false)
         await Task.yield()

@@ -29,6 +29,7 @@ APP_HELPERS="$APP_CONTENTS/Helpers"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 CLI_BINARY="$APP_HELPERS/capsstack"
+VERIFY_SCRIPT="$ROOT_DIR/script/verify_app_bundle.swift"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
@@ -38,15 +39,27 @@ swift build --product "$CLI_PRODUCT"
 BUILD_BIN_DIR="$(swift build --product "$APP_NAME" --show-bin-path)"
 BUILD_BINARY="$BUILD_BIN_DIR/$APP_NAME"
 BUILD_CLI_BINARY="$BUILD_BIN_DIR/$CLI_PRODUCT"
-RESOURCE_BUNDLE="$BUILD_BIN_DIR/CapsStack_CapsStack.bundle"
-LOCALIZATION_BUNDLE="$BUILD_BIN_DIR/CapsStack_CapsStackLocalization.bundle"
+RESOURCE_BUNDLES=(
+  "$BUILD_BIN_DIR/CapsStack_CapsStack.bundle"
+  "$BUILD_BIN_DIR/CapsStack_CapsStackLocalization.bundle"
+  "$BUILD_BIN_DIR/PostHog_PostHog.bundle"
+  "$BUILD_BIN_DIR/PostHog_PHPLCrashReporter.bundle"
+)
+
+for resource_bundle in "${RESOURCE_BUNDLES[@]}"; do
+  if [[ ! -d "$resource_bundle" ]]; then
+    echo "Required resource bundle is missing: $resource_bundle" >&2
+    exit 1
+  fi
+done
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS" "$APP_HELPERS" "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 cp "$BUILD_CLI_BINARY" "$CLI_BINARY"
-cp -R "$RESOURCE_BUNDLE" "$APP_RESOURCES/"
-cp -R "$LOCALIZATION_BUNDLE" "$APP_RESOURCES/"
+for resource_bundle in "${RESOURCE_BUNDLES[@]}"; do
+  cp -R "$resource_bundle" "$APP_RESOURCES/"
+done
 cp "$ROOT_DIR/Packaging/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
 cp "$ROOT_DIR/Packaging/Info.plist" "$APP_CONTENTS/Info.plist"
 
@@ -59,9 +72,11 @@ if [[ -n "${CAPSSTACK_POSTHOG_HOST:-}" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CapsStackPostHogHost $CAPSSTACK_POSTHOG_HOST" "$APP_CONTENTS/Info.plist"
 fi
 chmod +x "$APP_BINARY" "$CLI_BINARY"
+chmod -R u+w "$APP_BUNDLE"
 xattr -cr "$APP_BUNDLE"
 codesign --force --deep --sign - "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"
+swift "$VERIFY_SCRIPT" "$APP_BUNDLE"
 
 open_app() {
   if [[ "${CAPSSTACK_DEMO_DATA:-0}" == "1" ]]; then

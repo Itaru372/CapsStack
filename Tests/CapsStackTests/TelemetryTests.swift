@@ -171,6 +171,39 @@ final class TelemetryTests: XCTestCase {
     }
 
     @MainActor
+    func testControllerToggleRemainsChangeableWithoutTelemetryDestination() throws {
+        let suiteName = "CapsStackTelemetryUnavailableTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let telemetry = NoopTelemetryClient()
+        let controller = AppController(
+            defaults: defaults,
+            historyStore: HistoryStore(
+                directoryURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent(suiteName, isDirectory: true)
+            ),
+            notifications: EmptyNotificationService(),
+            telemetry: telemetry
+        )
+
+        XCTAssertFalse(controller.isTelemetryConfigured)
+        XCTAssertFalse(controller.isTelemetryEnabled)
+
+        controller.setTelemetryEnabled(true)
+
+        XCTAssertTrue(controller.isTelemetryEnabled)
+        XCTAssertTrue(TelemetryPreferences(defaults: defaults).isEnabled)
+        XCTAssertFalse(telemetry.isEnabled)
+
+        controller.setTelemetryEnabled(false)
+
+        XCTAssertFalse(controller.isTelemetryEnabled)
+        XCTAssertFalse(TelemetryPreferences(defaults: defaults).isEnabled)
+        XCTAssertFalse(telemetry.isEnabled)
+    }
+
+    @MainActor
     func testControllerRecordsSetupAndStructuredFeedbackOnlyAfterOptIn() throws {
         let suiteName = "CapsStackTelemetryActivationTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

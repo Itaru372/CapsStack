@@ -170,6 +170,31 @@ final class BrandRenderingTests: XCTestCase {
             decisions: ["招待リンクの有効期限は7日間とする"],
             blockers: ["リカバリーフローのレビュー待ち"],
             nextSteps: ["招待メールの文面をレビュー", "リカバリーフローを実装する"],
+            highlights: [
+                SummaryHighlight(
+                    kind: .nextAction,
+                    text: "招待メールの文面をレビューする。",
+                    projectID: "project-1",
+                    projectName: "CapsStack",
+                    sessionID: "codex:qa-session",
+                    source: "Codex CLI"
+                ),
+                SummaryHighlight(
+                    kind: .waiting,
+                    text: "リカバリーフローは仕様確認待ち。",
+                    projectID: "project-1",
+                    projectName: "CapsStack",
+                    sessionID: "codex:qa-session",
+                    source: "Codex CLI"
+                ),
+                SummaryHighlight(
+                    kind: .verification,
+                    text: "CIが安定して通ることを確認した。",
+                    projectID: "project-2",
+                    projectName: "Dashboard",
+                    source: "Claude Code CLI"
+                )
+            ],
             sessions: [],
             projects: [ProjectSummary(
                 projectID: "project-1",

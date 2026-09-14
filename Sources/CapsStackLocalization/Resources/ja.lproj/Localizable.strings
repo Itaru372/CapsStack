@@ -83,6 +83,17 @@
 "Progress" = "進捗";
 "Decisions" = "決定";
 "Next steps" = "次の一手";
+"What matters now" = "いま把握すべきこと";
+"Session details" = "セッションの詳細";
+"Project-wide" = "プロジェクト全体";
+"Next action" = "次の一手";
+"Waiting" = "確認待ち";
+"Problem" = "問題";
+"Decision" = "決定";
+"Discovery" = "発見";
+"Verified" = "検証済み";
+"Risk" = "リスク";
+"Change" = "変更";
 "By project" = "プロジェクト別";
 "By session" = "セッション別";
 "Not set" = "未設定";
@@ -190,7 +201,6 @@
 "Not detected" = "未検出";
 "Enable CapsStack" = "CapsStack機能を有効にする";
 "CapsStack" = "CapsStack";
-"Minimum away time: %lld seconds" = "最短退席時間: %lld秒";
 "Caps Lock" = "Caps Lock";
 "CLI" = "CLI";
 "Desktop" = "Desktop";
@@ -219,6 +229,7 @@
 "Disable normal Caps Lock input" = "本来のCaps Lock入力を無効化";
 "Enabled" = "有効";
 "Accessibility permission required" = "アクセシビリティ権限が必要です";
+"Input Monitoring permission is required. Allow CapsStack in System Settings > Privacy & Security > Input Monitoring." = "入力監視の許可が必要です。システム設定 > プライバシーとセキュリティ > 入力監視でCapsStackを許可してください。";
 "Open System Settings" = "システム設定を開く";
 "Background" = "常駐";
 "Always run in the background" = "バックグラウンドで常に実行";

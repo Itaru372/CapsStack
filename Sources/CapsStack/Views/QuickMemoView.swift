@@ -9,8 +9,7 @@ struct QuickMemoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 15, weight: .semibold))
+                ProductSymbolImage(symbol: .awayMemo, size: 15)
                     .foregroundStyle(BrandPalette.BriefTheme.signal)
                     .frame(width: 34, height: 34)
                     .background(

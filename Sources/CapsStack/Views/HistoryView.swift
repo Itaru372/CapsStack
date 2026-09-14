@@ -59,7 +59,11 @@ struct HistoryView: View {
                         )
                     } else {
                         ContentUnavailableView {
-                            Label(CapsStackText.resource(.noHistoryYet), systemImage: "text.page")
+                            Label {
+                                Text(CapsStackText.resource(.noHistoryYet))
+                            } icon: {
+                                ProductSymbolImage(symbol: .returnBrief, size: 28)
+                            }
                         } description: {
                             Text(CapsStackText.resource(.startRecordingAway))
                         } actions: {
@@ -251,7 +255,11 @@ struct HistoryView: View {
             Divider()
             VStack(alignment: .leading, spacing: 10) {
                 Button { openWindow(id: "quick-memo") } label: {
-                    Label(CapsStackText.resource(.awayMemoEllipsis), systemImage: "square.and.pencil")
+                    Label {
+                        Text(CapsStackText.resource(.awayMemoEllipsis))
+                    } icon: {
+                        ProductSymbolImage(symbol: .awayMemo)
+                    }
                 }
                 SettingsLink { Label(CapsStackText.resource(.settings), systemImage: "gearshape") }
             }
@@ -639,7 +647,11 @@ private struct SessionHeaderCard: View {
                 .font(.caption.weight(.medium))
                 .foregroundStyle(Color.orange)
         case .empty:
-            Label(CapsStackText.resource(.noSessions), systemImage: "tray")
+            Label {
+                Text(CapsStackText.resource(.noSessions))
+            } icon: {
+                ProductSymbolImage(symbol: .noSessions, size: 12)
+            }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
         }
@@ -664,26 +676,48 @@ private struct ReturnBriefView: View {
             }
 
             if let summary = entry.summary {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 16) {
-                        actionSections(summary).frame(minWidth: 280, maxWidth: .infinity, alignment: .topLeading)
+                if !summary.highlights.isEmpty {
+                    BriefHighlightsView(highlights: summary.highlights)
+
+                    if !summary.projects.isEmpty || !summary.sessions.isEmpty {
+                        DisclosureGroup {
+                            Group {
+                                if !summary.projects.isEmpty {
+                                    ProjectBriefsView(projects: summary.projects)
+                                } else {
+                                    LegacySessionBriefsView(sessions: summary.sessions)
+                                }
+                            }
+                            .padding(.top, 12)
+                        } label: {
+                            Label(CapsStackText.resource(.sessionDetails), systemImage: "terminal")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .padding(14)
+                        .background(BrandPalette.BriefTheme.panel, in: RoundedRectangle(cornerRadius: 10))
                     }
-                    VStack(alignment: .leading, spacing: 16) { actionSections(summary) }
-                }
-                Divider()
-                BriefSection(title: CapsStackText.resolve(.progress), symbolName: "checkmark.circle",
-                             items: summary.progress, checklist: false)
-                BriefSection(title: CapsStackText.resolve(.decisions), symbolName: "arrow.triangle.branch",
-                             items: summary.decisions, checklist: false)
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 16) {
+                            actionSections(summary).frame(minWidth: 280, maxWidth: .infinity, alignment: .topLeading)
+                        }
+                        VStack(alignment: .leading, spacing: 16) { actionSections(summary) }
+                    }
+                    Divider()
+                    BriefSection(title: CapsStackText.resolve(.progress), symbolName: "checkmark.circle",
+                                 items: summary.progress, checklist: false)
+                    BriefSection(title: CapsStackText.resolve(.decisions), symbolName: "arrow.triangle.branch",
+                                 items: summary.decisions, checklist: false)
 
-                if !summary.projects.isEmpty {
-                    ProjectBriefsView(projects: summary.projects)
-                } else if !summary.sessions.isEmpty {
-                    LegacySessionBriefsView(sessions: summary.sessions)
-                }
+                    if !summary.projects.isEmpty {
+                        ProjectBriefsView(projects: summary.projects)
+                    } else if !summary.sessions.isEmpty {
+                        LegacySessionBriefsView(sessions: summary.sessions)
+                    }
 
-                if !summary.currentState.isEmpty {
-                    supplementalSections(summary)
+                    if !summary.currentState.isEmpty {
+                        supplementalSections(summary)
+                    }
                 }
             } else if entry.status == .pending {
                 VStack(alignment: .leading, spacing: 10) {
@@ -701,8 +735,7 @@ private struct ReturnBriefView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 12) {
-                    Image(systemName: "tray")
-                        .font(.system(size: 22, weight: .medium))
+                    ProductSymbolImage(symbol: .noSessions, size: 22)
                         .foregroundStyle(BrandPalette.BriefTheme.signal)
                         .frame(width: 42, height: 42)
                         .background(
@@ -724,7 +757,11 @@ private struct ReturnBriefView: View {
 
             if let memo = entry.quickMemo, !memo.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Label(CapsStackText.resource(.awayMemo), systemImage: "square.and.pencil")
+                    Label {
+                        Text(CapsStackText.resource(.awayMemo))
+                    } icon: {
+                        ProductSymbolImage(symbol: .awayMemo, size: 14)
+                    }
                         .font(.subheadline.weight(.semibold))
                     Text(memo)
                         .font(.callout)
@@ -829,6 +866,157 @@ private struct ReturnBriefView: View {
         .font(.caption.monospacedDigit())
         .foregroundStyle(.secondary)
         .padding(.top, 4)
+    }
+}
+
+private struct BriefHighlightsView: View {
+    let highlights: [SummaryHighlight]
+
+    private var groups: [HighlightProjectGroup] {
+        var order: [String] = []
+        var grouped: [String: [SummaryHighlight]] = [:]
+        var names: [String: String] = [:]
+
+        for highlight in SummaryHighlightLimits.bounded(highlights) {
+            if grouped[highlight.projectID] == nil { order.append(highlight.projectID) }
+            grouped[highlight.projectID, default: []].append(highlight)
+            names[highlight.projectID] = highlight.projectName
+        }
+        return order.map {
+            HighlightProjectGroup(
+                id: $0,
+                name: names[$0] ?? CapsStackText.resolve(.unknownProject),
+                highlights: grouped[$0] ?? []
+            )
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Label {
+                Text(CapsStackText.resource(.highlights))
+            } icon: {
+                ProductSymbolImage(symbol: .highlights, size: 18)
+            }
+                .font(.title3.weight(.bold))
+
+            ForEach(groups) { group in
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "folder")
+                            .foregroundStyle(BrandPalette.BriefTheme.signal)
+                            .accessibilityHidden(true)
+                        Text(group.name)
+                            .font(.headline)
+                        Spacer(minLength: 8)
+                        Text("\(group.highlights.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.bottom, 8)
+
+                    ForEach(group.highlights) { highlight in
+                        HighlightRow(highlight: highlight)
+                        if highlight.id != group.highlights.last?.id {
+                            Divider().padding(.leading, 30)
+                        }
+                    }
+                }
+                .padding(16)
+                .background(BrandPalette.BriefTheme.card, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(BrandPalette.BriefTheme.border))
+            }
+        }
+    }
+}
+
+private struct HighlightProjectGroup: Identifiable {
+    let id: String
+    let name: String
+    let highlights: [SummaryHighlight]
+}
+
+private struct HighlightRow: View {
+    let highlight: SummaryHighlight
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: highlight.kind.systemImageName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(highlight.kind.tint)
+                .frame(width: 18, height: 18)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(highlight.kind.title.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(highlight.kind.tint)
+
+                Text(highlight.text)
+                    .font(.callout)
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+
+                Text(sourceDescription)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var sourceDescription: String {
+        switch (highlight.source, highlight.sessionID) {
+        case let (source?, sessionID?): "\(source) · \(sessionID)"
+        case let (source?, nil): source
+        case let (nil, sessionID?): sessionID
+        case (nil, nil): CapsStackText.resolve(.projectLevel)
+        }
+    }
+}
+
+private extension SummaryHighlightKind {
+    var title: String {
+        switch self {
+        case .nextAction: CapsStackText.resolve(.highlightNextAction)
+        case .waiting: CapsStackText.resolve(.highlightWaiting)
+        case .blocker: CapsStackText.resolve(.highlightBlocker)
+        case .progress: CapsStackText.resolve(.progress)
+        case .decision: CapsStackText.resolve(.highlightDecision)
+        case .currentState: CapsStackText.resolve(.currentState)
+        case .discovery: CapsStackText.resolve(.highlightDiscovery)
+        case .verification: CapsStackText.resolve(.highlightVerification)
+        case .risk: CapsStackText.resolve(.highlightRisk)
+        case .change: CapsStackText.resolve(.highlightChange)
+        }
+    }
+
+    var systemImageName: String {
+        switch self {
+        case .nextAction: "arrow.right.circle.fill"
+        case .waiting: "hourglass"
+        case .blocker: "exclamationmark.octagon.fill"
+        case .progress: "checkmark.circle.fill"
+        case .decision: "arrow.triangle.branch"
+        case .currentState: "location.fill"
+        case .discovery: "lightbulb.fill"
+        case .verification: "checkmark.seal.fill"
+        case .risk: "exclamationmark.triangle.fill"
+        case .change: "arrow.triangle.2.circlepath"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .blocker, .risk: .orange
+        case .waiting: .secondary
+        case .nextAction, .progress, .verification: BrandPalette.BriefTheme.signal
+        case .decision, .currentState, .discovery, .change: .primary
+        }
     }
 }
 
