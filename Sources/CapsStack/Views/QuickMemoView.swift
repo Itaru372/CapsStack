@@ -38,7 +38,7 @@ struct QuickMemoView: View {
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 13)
-                        .padding(.vertical, 14)
+                        .padding(.top, 8)
                         .allowsHitTesting(false)
                 }
 

@@ -1,11 +1,10 @@
-@preconcurrency import ApplicationServices
 @preconcurrency import CoreFoundation
 @preconcurrency import CoreGraphics
 import CapsStackLocalization
 import Foundation
 
 enum CapsLockSuppressionIssue: Equatable {
-    case accessibilityPermission
+    case eventPostingPermission
     case inputMonitoringPermission
     case eventTap
 }
@@ -14,7 +13,8 @@ enum CapsLockSuppressionIssue: Equatable {
 /// monitoring path therefore does not require Accessibility or Input Monitoring permission.
 /// When `suppressOriginalCapsLock` is enabled, an active event tap is installed to swallow the
 /// Caps Lock key so the original uppercase-toggling behaviour is disabled while CapsStack still
-/// receives the trigger.
+/// receives the trigger. Permission checks use Core Graphics' event listening and posting checks;
+/// `AXIsProcessTrusted()` checks a different Accessibility API capability.
 final class CapsLockMonitor: @unchecked Sendable {
     typealias ChangeHandler = @Sendable (Bool) -> Void
 
@@ -23,8 +23,8 @@ final class CapsLockMonitor: @unchecked Sendable {
     private let pollingQueue: DispatchQueue
     private let systemStateReader: @Sendable () -> Bool
     private let systemStateSetter: @Sendable (Bool) -> Void
-    private let accessibilityTrustReader: @Sendable () -> Bool
-    private let accessibilityPermissionRequester: @Sendable () -> Bool
+    private let eventPostingAccessReader: @Sendable () -> Bool
+    private let eventPostingAccessRequester: @Sendable () -> Bool
     private let listenEventAccessReader: @Sendable () -> Bool
     private let listenEventAccessRequester: @Sendable () -> Bool
     private var timer: DispatchSourceTimer?
@@ -99,11 +99,8 @@ final class CapsLockMonitor: @unchecked Sendable {
         queue: DispatchQueue? = nil,
         systemStateReader: @escaping @Sendable () -> Bool = { CapsLockMonitor.readSystemState() },
         systemStateSetter: @escaping @Sendable (Bool) -> Void = { CapsLockMonitor.setSystemCapsLock(on: $0) },
-        accessibilityTrustReader: @escaping @Sendable () -> Bool = { AXIsProcessTrusted() },
-        accessibilityPermissionRequester: @escaping @Sendable () -> Bool = {
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-            return AXIsProcessTrustedWithOptions(options)
-        },
+        eventPostingAccessReader: @escaping @Sendable () -> Bool = { CGPreflightPostEventAccess() },
+        eventPostingAccessRequester: @escaping @Sendable () -> Bool = { CGRequestPostEventAccess() },
         listenEventAccessReader: @escaping @Sendable () -> Bool = { CGPreflightListenEventAccess() },
         listenEventAccessRequester: @escaping @Sendable () -> Bool = { CGRequestListenEventAccess() }
     ) {
@@ -114,8 +111,8 @@ final class CapsLockMonitor: @unchecked Sendable {
         )
         self.systemStateReader = systemStateReader
         self.systemStateSetter = systemStateSetter
-        self.accessibilityTrustReader = accessibilityTrustReader
-        self.accessibilityPermissionRequester = accessibilityPermissionRequester
+        self.eventPostingAccessReader = eventPostingAccessReader
+        self.eventPostingAccessRequester = eventPostingAccessRequester
         self.listenEventAccessReader = listenEventAccessReader
         self.listenEventAccessRequester = listenEventAccessRequester
         self.state = systemStateReader()
@@ -124,7 +121,7 @@ final class CapsLockMonitor: @unchecked Sendable {
     /// Enable or disable swallowing the original Caps Lock typing behaviour.
     /// Returns true if the requested state was applied, false if permission is missing.
     @discardableResult
-    func setSuppressionEnabled(_ enabled: Bool) -> Bool {
+    func setSuppressionEnabled(_ enabled: Bool, requestPermission: Bool = true) -> Bool {
         lock.lock()
         let wasRequested = suppressOriginal
         let wasActive = suppressOriginal && suppressionActive
@@ -145,7 +142,7 @@ final class CapsLockMonitor: @unchecked Sendable {
         if enabled == wasRequested {
             // Already in desired state; ensure tap matches
             if enabled {
-                return installEventTap()
+                return installEventTap(requestPermission: requestPermission)
             } else {
                 uninstallEventTap()
                 return true
@@ -156,7 +153,7 @@ final class CapsLockMonitor: @unchecked Sendable {
             // Keep the requested preference when permission is missing. This lets the app
             // retry after the user grants access in System Settings instead of immediately
             // flipping the Settings toggle back to OFF.
-            return installEventTap()
+            return installEventTap(requestPermission: requestPermission)
         } else {
             uninstallEventTap()
             return true
@@ -173,7 +170,7 @@ final class CapsLockMonitor: @unchecked Sendable {
             lock.unlock()
             // Ensure event tap is consistent with suppression flag
             if shouldInstallTap {
-                _ = installEventTap()
+                _ = installEventTap(requestPermission: false)
             }
             return true
         }
@@ -192,7 +189,7 @@ final class CapsLockMonitor: @unchecked Sendable {
         lock.unlock()
         timer.resume()
         if shouldInstallTap {
-            _ = installEventTap()
+            _ = installEventTap(requestPermission: false)
         }
         return true
     }
@@ -259,7 +256,7 @@ final class CapsLockMonitor: @unchecked Sendable {
 
     // MARK: - Event Tap (suppressed path)
 
-    private func installEventTap() -> Bool {
+    private func installEventTap(requestPermission: Bool) -> Bool {
         // Already installed
         lock.lock()
         let alreadyInstalled = eventTap != nil
@@ -268,29 +265,33 @@ final class CapsLockMonitor: @unchecked Sendable {
             return true
         }
 
-        // Active event taps need both the legacy assistive-device trust check and the modern
-        // Input Monitoring grant. Checking and requesting these separately makes the failure
-        // actionable on current macOS versions, where Accessibility alone is not sufficient.
-        if !accessibilityTrustReader() {
-            lock.lock()
-            storedSuppressionError = CapsStackText.resolve(.accessibilityPermissionMessage)
-            storedSuppressionIssue = .accessibilityPermission
-            suppressionActive = false
-            lock.unlock()
-            _ = accessibilityPermissionRequester()
-            return false
-        }
-
+        // Check the exact capabilities used by the event tap and Caps Lock state setter.
+        // macOS exposes event listening and event posting as separate permissions; checking
+        // AXIsProcessTrusted() here can report the wrong failure for Core Graphics events.
         if !listenEventAccessReader() {
             lock.lock()
             storedSuppressionError = CapsStackText.resolve(.inputMonitoringPermissionMessage)
             storedSuppressionIssue = .inputMonitoringPermission
             suppressionActive = false
             lock.unlock()
+            guard requestPermission else { return false }
             _ = listenEventAccessRequester()
             // The request may have been accepted immediately. Continue in that case; if macOS
             // opened a settings prompt instead, the caller can retry after granting access.
             guard listenEventAccessReader() else {
+                return false
+            }
+        }
+
+        if !eventPostingAccessReader() {
+            lock.lock()
+            storedSuppressionError = CapsStackText.resolve(.eventPostingPermissionMessage)
+            storedSuppressionIssue = .eventPostingPermission
+            suppressionActive = false
+            lock.unlock()
+            guard requestPermission else { return false }
+            _ = eventPostingAccessRequester()
+            guard eventPostingAccessReader() else {
                 return false
             }
         }

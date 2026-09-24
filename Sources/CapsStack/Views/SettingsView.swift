@@ -761,7 +761,7 @@ private struct GeneralSettingsView: View {
                         Label {
                             Text(
                                 controller.capsLockSuppressionError
-                                    ?? CapsStackText.resolve(.accessibilityPermissionRequired)
+                                    ?? CapsStackText.resolve(.eventPostingPermissionRequired)
                             )
                         } icon: {
                             Image(systemName: "lock.shield")

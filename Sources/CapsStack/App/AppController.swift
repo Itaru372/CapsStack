@@ -145,7 +145,10 @@ final class AppController: ObservableObject {
         reloadHistory()
         observeDefaults()
         applyBackgroundKeepAlive()
-        applyCapsLockSuppression()
+        // A stale TCC entry (for example after replacing an ad-hoc signed build) must not
+        // trigger a system permission prompt every time the app launches. Retry silently here;
+        // the user can request access from the Settings screen when they choose.
+        applyCapsLockSuppression(requestPermission: false)
         monitor.onChange = { [weak self] isOn in
             Task { @MainActor in
                 self?.handleCapsLock(isOn: isOn)
@@ -252,18 +255,18 @@ final class AppController: ObservableObject {
 
     func setSuppressOriginalCapsLock(_ enabled: Bool) {
         defaults.set(enabled, forKey: PreferenceKeys.suppressOriginalCapsLock)
-        applyCapsLockSuppression()
+        applyCapsLockSuppression(requestPermission: enabled)
     }
 
     func retryCapsLockSuppression() {
         guard CapsStackFeaturePreferences(defaults: defaults).suppressOriginalCapsLock else { return }
-        applyCapsLockSuppression()
+        applyCapsLockSuppression(requestPermission: true)
     }
 
     func openCapsLockPermissionSettings() {
         let pane: String
         switch monitor.suppressionIssue {
-        case .accessibilityPermission:
+        case .eventPostingPermission:
             pane = "Privacy_Accessibility"
         case .inputMonitoringPermission, .eventTap, nil:
             pane = "Privacy_ListenEvent"
@@ -279,9 +282,9 @@ final class AppController: ObservableObject {
         }
     }
 
-    private func applyCapsLockSuppression() {
+    private func applyCapsLockSuppression(requestPermission: Bool) {
         let want = CapsStackFeaturePreferences(defaults: defaults).suppressOriginalCapsLock
-        monitor.setSuppressionEnabled(want)
+        monitor.setSuppressionEnabled(want, requestPermission: requestPermission)
         // Publish state for UI
         isSuppressingOriginalCapsLock = monitor.isSuppressingOriginal
         capsLockSuppressionError = monitor.suppressionError
@@ -694,7 +697,7 @@ final class AppController: ObservableObject {
         }
         if feature.suppressOriginalCapsLock != isSuppressingOriginalCapsLock || feature.suppressOriginalCapsLock {
             // Re-evaluate suppression error (e.g. permission granted after prompt)
-            applyCapsLockSuppression()
+            applyCapsLockSuppression(requestPermission: false)
         }
         applyBackgroundKeepAlive()
         applyTelemetryPreference()

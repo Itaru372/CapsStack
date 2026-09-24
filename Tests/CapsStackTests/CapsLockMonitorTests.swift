@@ -3,14 +3,14 @@ import XCTest
 @testable import CapsStack
 
 final class CapsLockMonitorTests: XCTestCase {
-    func testSuppressionRequestsInputMonitoringWhenAccessibilityIsGranted() {
+    func testSuppressionRequestsInputMonitoringWhenEventPostingIsGranted() {
         let requests = CallCounter()
         let monitor = CapsLockMonitor(
             pollingInterval: 60,
             systemStateReader: { false },
-            accessibilityTrustReader: { true },
-            accessibilityPermissionRequester: {
-                XCTFail("Accessibility permission should not be requested")
+            eventPostingAccessReader: { true },
+            eventPostingAccessRequester: {
+                XCTFail("Event posting permission should not be requested")
                 return false
             },
             listenEventAccessReader: { false },
@@ -37,7 +37,7 @@ final class CapsLockMonitorTests: XCTestCase {
             pollingInterval: 60,
             systemStateReader: { true },
             systemStateSetter: { _ in setterCalls.value += 1 },
-            accessibilityTrustReader: { true },
+            eventPostingAccessReader: { true },
             listenEventAccessReader: { false },
             listenEventAccessRequester: {
                 requests.value += 1
@@ -54,6 +54,36 @@ final class CapsLockMonitorTests: XCTestCase {
         XCTAssertNil(monitor.suppressionError)
     }
 
+    func testEventPostingPermissionIsRequestedOnlyAfterExplicitRetry() {
+        let requests = CallCounter()
+        let monitor = CapsLockMonitor(
+            pollingInterval: 60,
+            systemStateReader: { false },
+            eventPostingAccessReader: { false },
+            eventPostingAccessRequester: {
+                requests.value += 1
+                return false
+            },
+            listenEventAccessReader: { true },
+            listenEventAccessRequester: {
+                XCTFail("Input Monitoring is already granted")
+                return false
+            }
+        )
+
+        XCTAssertFalse(monitor.setSuppressionEnabled(true, requestPermission: false))
+        XCTAssertEqual(requests.value, 0)
+        XCTAssertEqual(monitor.suppressionIssue, .eventPostingPermission)
+
+        XCTAssertFalse(monitor.setSuppressionEnabled(true, requestPermission: true))
+        XCTAssertEqual(requests.value, 1)
+        XCTAssertEqual(
+            monitor.suppressionError,
+            CapsStackText.resolve(.eventPostingPermissionMessage)
+        )
+        XCTAssertFalse(monitor.isSuppressingOriginal)
+    }
+
     @MainActor
     func testAppControllerKeepsSuppressionPreferenceWhenPermissionIsMissing() throws {
         let suiteName = "CapsLockSuppressionPreferenceTests.\(UUID().uuidString)"
@@ -67,7 +97,7 @@ final class CapsLockMonitorTests: XCTestCase {
         let monitor = CapsLockMonitor(
             pollingInterval: 60,
             systemStateReader: { false },
-            accessibilityTrustReader: { true },
+            eventPostingAccessReader: { true },
             listenEventAccessReader: { false },
             listenEventAccessRequester: { false }
         )

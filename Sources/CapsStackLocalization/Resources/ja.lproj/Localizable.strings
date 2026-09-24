@@ -228,7 +228,7 @@
 "Uses the model's default (no reasoning override)" = "モデル側の既定値（推論指定なし）";
 "Disable normal Caps Lock input" = "本来のCaps Lock入力を無効化";
 "Enabled" = "有効";
-"Accessibility permission required" = "アクセシビリティ権限が必要です";
+"Mac control permission required" = "Macを操作する許可が必要です";
 "Input Monitoring permission is required. Allow CapsStack in System Settings > Privacy & Security > Input Monitoring." = "入力監視の許可が必要です。システム設定 > プライバシーとセキュリティ > 入力監視でCapsStackを許可してください。";
 "Open System Settings" = "システム設定を開く";
 "Background" = "常駐";
@@ -307,8 +307,8 @@
 "Timed out while fetching the %@ model list." = "%@のモデル一覧の取得がタイムアウトしました。";
 "Could not fetch the model list from %@." = "%@からモデル一覧を取得できませんでした。";
 "Could not parse the %@ model list." = "%@のモデル一覧を解釈できませんでした。";
-"Accessibility permission is required. Allow CapsStack in System Settings > Privacy & Security > Accessibility." = "アクセシビリティの許可が必要です。システム設定 > プライバシーとセキュリティ > アクセシビリティ で CapsStack を許可してください。";
-"Could not start monitoring Caps Lock. Check your Accessibility permission." = "Caps Lock の監視を開始できませんでした。アクセシビリティ権限を確認してください。";
+"Permission to control the Mac is required. Allow CapsStack in System Settings > Privacy & Security > Accessibility." = "Macを操作する許可が必要です。システム設定 > プライバシーとセキュリティ > アクセシビリティでCapsStackを許可してください。";
+"Could not start monitoring Caps Lock. Check CapsStack's keyboard and Mac control permissions." = "Caps Lockの監視を開始できませんでした。CapsStackのキーボード入力とMac操作の許可を確認してください。";
 "Could not register the keyboard event tap." = "イベントタップの登録に失敗しました。";
 "Log directory not found: %@" = "ログディレクトリが見つかりません: %@";
 "Could not read log directory: %@" = "ログディレクトリを読み取れません: %@";

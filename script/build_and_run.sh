@@ -74,7 +74,24 @@ fi
 chmod +x "$APP_BINARY" "$CLI_BINARY"
 chmod -R u+w "$APP_BUNDLE"
 xattr -cr "$APP_BUNDLE"
-codesign --force --deep --sign - "$APP_BUNDLE"
+
+# Prefer the CapsStack-specific local identity when it exists so macOS sees each rebuilt
+# version as the same app for Accessibility and Input Monitoring authorization. The key remains
+# in the user's Keychain; this script never exports or stores it in the repository.
+SIGNING_IDENTITY="${CAPSSTACK_SIGNING_IDENTITY:-}"
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="$(
+    /usr/bin/security find-identity -p codesigning 2>/dev/null \
+      | /usr/bin/awk '/"CapsStack Local Development"/ { print $2; exit }'
+  )"
+fi
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="-"
+  echo "CapsStack local signing identity not found; using an ad-hoc signature."
+else
+  echo "Signing CapsStack with its local Keychain identity."
+fi
+codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"
 swift "$VERIFY_SCRIPT" "$APP_BUNDLE"
 
