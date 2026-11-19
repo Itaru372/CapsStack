@@ -19,6 +19,9 @@ final class AppController: ObservableObject {
     @Published private(set) var history: [HistoryEntry] = []
     @Published private(set) var pendingBriefAssessments: [PendingBriefAssessment] = []
     @Published private(set) var pendingRetryProgress: PendingRetryProgress?
+    /// The history entry whose summary is currently being generated. Its persisted row is still
+    /// `.pending`, so views use this to show progress instead of the failed/unavailable state.
+    @Published private(set) var summarizingEntryID: UUID?
     @Published private(set) var cliStatuses: [CLIKind: CLIStatus] = [:]
     @Published private(set) var cliModels: [CLIKind: [CLIModel]] = [:]
     @Published private(set) var cliModelFetchStates: [CLIKind: CLIModelFetchState] = [:]
@@ -850,6 +853,12 @@ final class AppController: ObservableObject {
     ) async -> Bool {
         let summaryStartedAt = Date()
         var failureStage: TelemetryFailureStage = .summarization
+        summarizingEntryID = pendingEntry.id
+        defer {
+            if isCurrentWorkflow(workflowID), summarizingEntryID == pendingEntry.id {
+                summarizingEntryID = nil
+            }
+        }
         do {
             let outcome = try await summarizer.summarize(
                 batch: batch,
@@ -879,6 +888,7 @@ final class AppController: ObservableObject {
                 ))
             }
             recordFirstReturnBriefCompleted(for: completedEntry, summaryDuration: summaryDuration)
+            summarizingEntryID = nil
             reloadHistory()
             if !preservesWorkflowState {
                 phase = .idle
@@ -926,6 +936,7 @@ final class AppController: ObservableObject {
             } catch {
                 presentedErrorMessage += "\n" + CapsStackText.resolve(.couldNotSaveRetryData, locale: locale) + ": \(error.localizedDescription)"
             }
+            summarizingEntryID = nil
             reloadHistory()
             if !preservesWorkflowState {
                 phase = .failed
@@ -973,6 +984,7 @@ final class AppController: ObservableObject {
         guard isCurrentWorkflow(id) else { return }
         activeWorkflowTask = nil
         activeSessionCount = 0
+        summarizingEntryID = nil
     }
 
     /// Cancels in-flight work before a destructive/history or settings action changes the state.
@@ -982,6 +994,7 @@ final class AppController: ObservableObject {
         activeWorkflowTask?.cancel()
         activeWorkflowTask = nil
         pendingRetryProgress = nil
+        summarizingEntryID = nil
         workflowGeneration &+= 1
         if phase == .summarizing {
             phase = isCapsStackEnabled ? .idle : .disabled

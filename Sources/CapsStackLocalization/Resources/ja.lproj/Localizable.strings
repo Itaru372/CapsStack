@@ -73,6 +73,9 @@
 "Return brief" = "復帰ブリーフ";
 "Summary unavailable" = "要約できませんでした";
 "Check the summarizer CLI and try again." = "要約CLIを確認して再試行してください。";
+"Summarizing" = "要約中";
+"Summarizing this brief…" = "このブリーフを要約中…";
+"The summarizer CLI is still working. The return brief will appear here when it finishes." = "要約CLIが処理中です。完了するとここに復帰ブリーフが表示されます。";
 "No source sessions" = "対象セッションなし";
 "No supported sessions or away memo were captured for this interval." = "この退席区間では、対応セッションや退席前メモを取得できませんでした。";
 "Collection notes" = "収集時の注意";
