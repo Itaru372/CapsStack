@@ -31,9 +31,9 @@ struct HistoryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     workspaceHeader
-                    if !controller.pendingBriefAssessments.isEmpty {
+                    if !recoverablePendingAssessments.isEmpty {
                         PendingRecoveryCard(
-                            assessments: controller.pendingBriefAssessments,
+                            assessments: recoverablePendingAssessments,
                             progress: controller.pendingRetryProgress,
                             review: { presentedSheet = .pendingReview },
                             requestRetry: { showsBulkRetryConfirmation = true },
@@ -44,6 +44,7 @@ struct HistoryView: View {
                     if let entry = selectedEntry {
                         SessionHeaderCard(
                             entry: entry,
+                            isSummarizing: isSummarizing(entry),
                             message: exportMessage,
                             retry: { controller.retry(entry) },
                             canRetry: canRetry(entry),
@@ -53,6 +54,7 @@ struct HistoryView: View {
                         )
                         ReturnBriefView(
                             entry: entry,
+                            isSummarizing: isSummarizing(entry),
                             submitFeedback: controller.isTelemetryEnabled
                                 ? { reason in controller.recordBriefFeedback(reason, for: entry) }
                                 : nil
@@ -230,8 +232,7 @@ struct HistoryView: View {
                                             Text("–")
                                             Text(entry.interval.end, format: .dateTime.hour().minute())
                                             Spacer(minLength: 0)
-                                            Image(systemName: entry.status == .pending
-                                                  ? "exclamationmark.circle" : "chevron.right")
+                                            Image(systemName: sidebarSymbolName(for: entry))
                                         }
                                         .font(.callout.weight(.semibold).monospacedDigit())
                                         Text(CapsStackText.format(.sessionsCount, entry.sessionCount)
@@ -306,6 +307,25 @@ struct HistoryView: View {
               let assessment = controller.pendingBriefAssessments.first(where: { $0.entry.id == entry.id })
         else { return false }
         return assessment.isManuallyRetryable
+    }
+
+    private func isSummarizing(_ entry: HistoryEntry) -> Bool {
+        entry.status == .pending && controller.summarizingEntryID == entry.id
+    }
+
+    private func sidebarSymbolName(for entry: HistoryEntry) -> String {
+        if isSummarizing(entry) { return "hourglass" }
+        return entry.status == .pending ? "exclamationmark.circle" : "chevron.right"
+    }
+
+    /// A brief whose first summary is still running is not awaiting recovery yet. During a bulk
+    /// retry the card owns the progress display, so every candidate stays listed.
+    private var recoverablePendingAssessments: [PendingBriefAssessment] {
+        guard controller.pendingRetryProgress == nil,
+              let summarizingID = controller.summarizingEntryID else {
+            return controller.pendingBriefAssessments
+        }
+        return controller.pendingBriefAssessments.filter { $0.entry.id != summarizingID }
     }
 
     private var retryablePendingCount: Int {
@@ -586,6 +606,7 @@ private struct PendingBriefRow: View {
 
 private struct SessionHeaderCard: View {
     let entry: HistoryEntry
+    let isSummarizing: Bool
     let message: String?
     let retry: () -> Void
     let canRetry: Bool
@@ -613,7 +634,7 @@ private struct SessionHeaderCard: View {
                     Label(CapsStackText.resource(entry.summary == nil ? .copyStatus : .copy), systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
-                if entry.status == .pending {
+                if entry.status == .pending && !isSummarizing {
                     Button(CapsStackText.resource(.retrySummary), action: retry)
                         .buttonStyle(.borderedProminent)
                         .disabled(!canRetry)
@@ -637,6 +658,20 @@ private struct SessionHeaderCard: View {
 
     @ViewBuilder
     private var statusPill: some View {
+        if isSummarizing {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(CapsStackText.resource(.summarizing))
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(BrandPalette.BriefTheme.signal)
+        } else {
+            statusPillForStoredStatus
+        }
+    }
+
+    @ViewBuilder
+    private var statusPillForStoredStatus: some View {
         switch entry.status {
         case .completed:
             Label(CapsStackText.format(.sessionsCount, entry.sessionCount), systemImage: "checkmark.circle.fill")
@@ -660,6 +695,7 @@ private struct SessionHeaderCard: View {
 
 private struct ReturnBriefView: View {
     let entry: HistoryEntry
+    var isSummarizing = false
     let submitFeedback: ((TelemetryFeedbackReason) -> Bool)?
     @State private var showsCollectionNotes = false
 
@@ -719,6 +755,17 @@ private struct ReturnBriefView: View {
                         supplementalSections(summary)
                     }
                 }
+            } else if entry.status == .pending && isSummarizing {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(CapsStackText.resource(.summaryInProgress))
+                            .font(.headline)
+                    }
+                    Text(CapsStackText.resource(.summaryInProgressDescription))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("history.summaryInProgress")
             } else if entry.status == .pending {
                 VStack(alignment: .leading, spacing: 10) {
                     Label(CapsStackText.resource(.summaryUnavailable), systemImage: "exclamationmark.triangle")
@@ -733,6 +780,7 @@ private struct ReturnBriefView: View {
                         }
                     }
                 }
+                .accessibilityIdentifier("history.summaryUnavailable")
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     ProductSymbolImage(symbol: .noSessions, size: 22)
